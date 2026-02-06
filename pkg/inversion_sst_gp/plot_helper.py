@@ -1,3 +1,10 @@
+"""
+Plot helper module.
+
+This module contains utilities for creating visualizations, including functions for
+plotting images, color mapping, and drawing shapes.
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.transforms import Affine2D
@@ -10,9 +17,35 @@ from matplotlib.patches import Rectangle
 import cmocean
 import colorcet
 
-def imshow(ax,X,Y,Z,*args,**kwargs):
+def imshow(ax, X, Y, Z, *args, **kwargs):
+    """
+    Displays an image with modified extent based on the grid.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to plot on.
+    X : ndarray
+        Grid of x-coordinates.
+    Y : ndarray
+        Grid of y-coordinates.
+    Z : ndarray
+        Data to display as an image.
+    *args : tuple
+        Additional arguments for `imshow`.
+    **kwargs : dict
+        Additional keyword arguments for `imshow`.
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        The image object.
+    """
+
     # modified imshow
     if X.ndim == 1:
+
+
         dx     = (X[1]-X[0])/2
         dy     = (Y[1]-Y[0])/2
         extent = [X[0]-dx, X[-1]+dx, Y[0]-dy, Y[-1]+dy]
@@ -22,15 +55,86 @@ def imshow(ax,X,Y,Z,*args,**kwargs):
         extent = [X[0,0]-dx, X[0,-1]+dx, Y[0,0]-dy, Y[-1,0]+dy]
     return ax.imshow(np.flip(Z,axis=0),extent=extent,*args,**kwargs)
 
-def mask(ax,X,Y,mask,color,*args,**kwargs):
+def mask(ax, X, Y, mask, color, *args, **kwargs):
+    """
+    Displays a mask overlay on a plot.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to plot on.
+    X : ndarray
+        Grid of x-coordinates.
+    Y : ndarray
+        Grid of y-coordinates.
+    mask : ndarray
+        Boolean mask array.
+    color : str
+        Color for the mask overlay.
+    *args : tuple
+        Additional arguments for `imshow`.
+    **kwargs : dict
+        Additional keyword arguments for `imshow`.
+
+    Returns
+    -------
+    matplotlib.image.AxesImage
+        The mask overlay image object.
+    """
+
     maskn = np.zeros(mask.shape)
+
+
     maskn[np.logical_not(mask)] = np.nan
     cmap = mcolors.ListedColormap([color])
     return imshow(ax,X,Y,maskn,cmap=cmap,*args,**kwargs)
 
-def quiver(ax,x,y,u,v,scale=1,unit=1,label='',xlims=None,ylims=None,nx=None,ny=None,an=True,**kwargs):
+def quiver(ax, x, y, u, v, scale=1, unit=1, label='', xlims=None, ylims=None, nx=None, ny=None, an=True, **kwargs):
+    """
+    Plots a quiver plot with optional annotation.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to plot on.
+    x : ndarray
+        Grid of x-coordinates.
+    y : ndarray
+        Grid of y-coordinates.
+    u : ndarray
+        Velocity field in the x-direction.
+    v : ndarray
+        Velocity field in the y-direction.
+    scale : float, optional
+        Scale factor for the quiver plot. Default is 1.
+    unit : float, optional
+        Unit vector length for annotation. Default is 1.
+    label : str, optional
+        Label for the annotation. Default is an empty string.
+    xlims : tuple, optional
+        x-axis limits. Default is None.
+    ylims : tuple, optional
+        y-axis limits. Default is None.
+    nx : int, optional
+        Number of vectors in the x-direction. Default is None.
+    ny : int, optional
+        Number of vectors in the y-direction. Default is None.
+    an : bool, optional
+        Whether to add annotation. Default is True.
+    **kwargs : dict
+        Additional keyword arguments for `quiver`.
+
+    Returns
+    -------
+    matplotlib.quiver.Quiver
+        The quiver plot object.
+    """
+
+    
     # quiver with annotation
     if nx is None:
+
+
         ix = 1
     else:
         ix = int(round(x.shape[1]/nx))
@@ -58,9 +162,41 @@ def quiver(ax,x,y,u,v,scale=1,unit=1,label='',xlims=None,ylims=None,nx=None,ny=N
     ax.set_ylim(ylims)
     return vec
 
-def draw_confidence_ellipse_single(ax,x,y,cov,n_std=1,scale=1,xlims=None,ylims=None,**kwargs):
+def draw_confidence_ellipse_single(ax, x, y, cov, n_std=1, scale=1, xlims=None, ylims=None, **kwargs):
+    """
+    Draws a single confidence ellipse on a plot.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to plot on.
+    x : float
+        x-coordinate of the ellipse center.
+    y : float
+        y-coordinate of the ellipse center.
+    cov : ndarray
+        Covariance matrix for the ellipse.
+    n_std : float, optional
+        Number of standard deviations for the ellipse. Default is 1.
+    scale : float, optional
+        Scale factor for the ellipse. Default is 1.
+    xlims : tuple, optional
+        x-axis limits. Default is None.
+    ylims : tuple, optional
+        y-axis limits. Default is None.
+    **kwargs : dict
+        Additional keyword arguments for `Ellipse`.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+        The axes with the confidence ellipse added.
+    """
+
     # plot a single confidence ellipse
     ax.set_aspect(1)
+
+
     if xlims is None:
         xlims = ax.get_xlim()
     if ylims is None:
@@ -87,9 +223,36 @@ def draw_confidence_ellipse_single(ax,x,y,cov,n_std=1,scale=1,xlims=None,ylims=N
     ax.add_patch(obj)
     return ax
 
-def anno_confidence_ellipse(ax,scale=1,unit=1,label='',xlims=None,ylims=None,**kwargs):
+def anno_confidence_ellipse(ax, scale=1, unit=1, label='', xlims=None, ylims=None, **kwargs):
+    """
+    Adds annotation to a plot of confidence ellipses.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to annotate.
+    scale : float, optional
+        Scale factor for the annotation. Default is 1.
+    unit : float, optional
+        Unit length for the annotation. Default is 1.
+    label : str, optional
+        Label for the annotation. Default is an empty string.
+    xlims : tuple, optional
+        x-axis limits. Default is None.
+    ylims : tuple, optional
+        y-axis limits. Default is None.
+    **kwargs : dict
+        Additional keyword arguments for the annotation.
+
+    Returns
+    -------
+    None
+    """
+
     # add annotation to plot of confidence ellipse(s)
     if xlims is None:
+
+
         xlims = ax.get_xlim()
     if ylims is None:
         ylims = ax.get_ylim()
@@ -113,9 +276,51 @@ def anno_confidence_ellipse(ax,scale=1,unit=1,label='',xlims=None,ylims=None,**k
                 ha="right")
     return ax
 
-def draw_confidence_ellipse(ax,x,y,c_cov,nx=None,ny=None,n_std=1,scale=1,unit=1,label='',xlims=None,ylims=None,an=True,**kwargs):
+def draw_confidence_ellipse(ax, x, y, c_cov, nx=None, ny=None, n_std=1, scale=1, unit=1, label='', xlims=None, ylims=None, an=True, **kwargs):
+    """
+    Plots confidence ellipses on a grid.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to plot on.
+    x : ndarray
+        Grid of x-coordinates.
+    y : ndarray
+        Grid of y-coordinates.
+    c_cov : ndarray
+        Covariance matrices for the ellipses.
+    nx : int, optional
+        Number of ellipses in the x-direction. Default is None.
+    ny : int, optional
+        Number of ellipses in the y-direction. Default is None.
+    n_std : float, optional
+        Number of standard deviations for the ellipses. Default is 1.
+    scale : float, optional
+        Scale factor for the ellipses. Default is 1.
+    unit : float, optional
+        Unit length for the annotation. Default is 1.
+    label : str, optional
+        Label for the annotation. Default is an empty string.
+    xlims : tuple, optional
+        x-axis limits. Default is None.
+    ylims : tuple, optional
+        y-axis limits. Default is None.
+    an : bool, optional
+        Whether to add annotation. Default is True.
+    **kwargs : dict
+        Additional keyword arguments for the ellipses.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+        The axes with the confidence ellipses added.
+    """
+
     # plot confidence ellipses
     Ny,Nx = x.shape
+
+
     if nx is None:
         ix = 1
     else:
@@ -134,6 +339,21 @@ def draw_confidence_ellipse(ax,x,y,c_cov,nx=None,ny=None,n_std=1,scale=1,unit=1,
     return ax
 
 def get_aspect(ax):
+    """
+    Calculates the aspect ratio of the data in the axes.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to calculate the aspect ratio for.
+
+    Returns
+    -------
+    float
+        The aspect ratio of the data in the axes.
+    """
+
+
     # get the aspect ratio of the figure
     figW, figH = ax.get_figure().get_size_inches() # total figure size
     _, _, w, h = ax.get_position().bounds # axis size on figure
@@ -142,6 +362,23 @@ def get_aspect(ax):
     return disp_ratio / data_ratio
 
 def ticks_from_spacing(lims, tickspacing):
+    """
+    Generates tick positions based on a specified spacing and data range.
+
+    Parameters
+    ----------
+    lims : tuple
+        The lower and upper limits of the data range.
+    tickspacing : float
+        The spacing between ticks.
+
+    Returns
+    -------
+    tuple
+        A tuple containing the tick positions and the order of magnitude of the tick spacing.
+    """
+
+
     # generate ticks based on a specified tick spacing and the data range
 
     # calculate the order of magnitude of the tick spacing
@@ -160,8 +397,28 @@ def ticks_from_spacing(lims, tickspacing):
     return ticks, order
 
 def ticks_in_deg(ax, xtickspacing=None, ytickspacing=None): 
+    """
+    Converts tick labels into geographic coordinates (degrees).
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to modify tick labels for.
+    xtickspacing : float, optional
+        Spacing for x-axis ticks. Default is None.
+    ytickspacing : float, optional
+        Spacing for y-axis ticks. Default is None.
+
+    Returns
+    -------
+    None
+    """
+
+
     # change tick labels into geographic coordinates.
     if xtickspacing is not None:
+
+
         xlims = ax.get_xlim()
         xticks, xorder = ticks_from_spacing(xlims, xtickspacing)
         Nx = len(xticks)
@@ -205,8 +462,34 @@ def ticks_in_deg(ax, xtickspacing=None, ytickspacing=None):
         ax.set_yticks(yticks)
         ax.set_yticklabels(yticklabels)
 
-def add_colorbar_map(fig,cax, lims, cmap, side, label=None, format_label=False,**kwargs):
-    # add colormap to axis
+def add_colorbar_map(fig, cax, lims, cmap, side, label=None, format_label=False, **kwargs):
+    """
+    Adds a colorbar to a map plot.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        The figure to add the colorbar to.
+    cax : matplotlib.axes.Axes
+        The axes for the colorbar.
+    lims : tuple
+        The value limits for the colorbar (vmin, vmax).
+    cmap : matplotlib.colors.Colormap
+        The colormap for the colorbar.
+    side : str
+        The side of the plot to place the colorbar ('left', 'right', 'top', 'bottom').
+    label : str, optional
+        The label for the colorbar. Default is None.
+    format_label : bool, optional
+        Whether to format the label. Default is False.
+    **kwargs : dict
+        Additional keyword arguments for `colorbar`.
+
+    Returns
+    -------
+    None
+    """
+        # add colormap to axis
 
     # value limits
     norm = Normalize(vmin=lims[0], vmax=lims[1])
@@ -237,7 +520,39 @@ def add_colorbar_map(fig,cax, lims, cmap, side, label=None, format_label=False,*
                 cax.set_xlabel(label)
     pass
 
-def add_colorbar(fig, ax, side, lims, cmap, cbr, cbd, cbw, label=None, format_label=False,**kwargs):
+def add_colorbar(fig, ax, side, lims, cmap, cbr, cbd, cbw, label=None, format_label=False, **kwargs):
+    """
+    Adds a colorbar to a plot with specified dimensions and placement.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        The figure to add the colorbar to.
+    ax : matplotlib.axes.Axes
+        The axes to associate the colorbar with.
+    side : str
+        The side of the plot to place the colorbar ('top', 'bottom', 'left', 'right').
+    lims : tuple
+        The value limits for the colorbar (vmin, vmax).
+    cmap : matplotlib.colors.Colormap
+        The colormap for the colorbar.
+    cbr : float
+        The relative width of the colorbar.
+    cbd : float
+        The distance of the colorbar from the plot.
+    cbw : float
+        The width of the colorbar.
+    label : str, optional
+        The label for the colorbar. Default is None.
+    format_label : bool, optional
+        Whether to format the label. Default is False.
+    **kwargs : dict
+        Additional keyword arguments for `colorbar`.
+
+    Returns
+    -------
+    None
+    """
     # add colorbar
 
     pos = ax.get_position() # get the position of the axes
@@ -253,8 +568,29 @@ def add_colorbar(fig, ax, side, lims, cmap, cbr, cbd, cbw, label=None, format_la
     add_colorbar_map(fig,cax,lims,cmap,side,label=label, format_label=format_label,**kwargs)
     pass
 
+
 def add_ax_ylabel_format(fig, ax, label):
+    """
+    Adds a formatted y-axis label to the axes, including offset text if present.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        The figure containing the axes.
+    ax : matplotlib.axes.Axes
+        The axes to modify.
+    label : str
+        The label text for the y-axis.
+
+    Returns
+    -------
+    None
+    """
+
+
     fig.canvas.draw()
+
+
     offset_text = ax.yaxis.get_offset_text().get_text()
 
     if offset_text:
@@ -264,7 +600,27 @@ def add_ax_ylabel_format(fig, ax, label):
         ax.set_ylabel(label)
         
 def add_ax_xlabel_format(fig, ax, label):
+    """
+    Adds a formatted x-axis label to the axes, including offset text if present.
+
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        The figure containing the axes.
+    ax : matplotlib.axes.Axes
+        The axes to modify.
+    label : str
+        The label text for the x-axis.
+
+    Returns
+    -------
+    None
+    """
+
+
     fig.canvas.draw()
+
+
     offset_text = ax.xaxis.get_offset_text().get_text()
 
     if offset_text:
@@ -284,8 +640,36 @@ def add_ax_xlabel_format(fig, ax, label):
 #                 clip_box=ax.bbox,
 #                 zorder=10)
 #     pass
-def annotate_corner(ax,text,fontsize=12,fig=None,box=True,buffer=0):
+
+
+def annotate_corner(ax, text, fontsize=12, fig=None, box=True, buffer=0):
+    """
+    Annotates the corner of a plot with a text label, optionally adding a box.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to annotate.
+    text : str
+        The text to display in the corner.
+    fontsize : int, optional
+        Font size for the text. Default is 12.
+    fig : matplotlib.figure.Figure, optional
+        The figure containing the axes. Default is the current figure.
+    box : bool, optional
+        Whether to add a box around the text. Default is True.
+    buffer : int, optional
+        Additional spacing around the text. Default is 0.
+
+    Returns
+    -------
+    None
+    """
+
+
     if fig is None:
+
+
         fig = plt.gcf()
     bbox = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
     axis_height_inches = bbox.height
@@ -318,7 +702,11 @@ def annotate_corner(ax,text,fontsize=12,fig=None,box=True,buffer=0):
     ax.text(mw/axis_width_points,1-(mn+fontsize)/axis_height_points,text,va='bottom',ha='left',transform=ax.transAxes,fontsize=fontsize,zorder=100)
 
 def visualize_data(LON, LAT, T, dTdt, dTds1, dTds2, u=None, v=None, lonlims=None, latlims=None, plimT=None, plimTgrad = None, plimdTdt=None, plimspeed=None, pscale=4, nx=17, ny=17, plt_show=False, return_fig=False, label_obs = True):    
+
+
     bool_velocity = (u is not None) and (v is not None)
+
+
     
     mn = .3
     mw = .2
@@ -454,9 +842,15 @@ def visualize_data(LON, LAT, T, dTdt, dTds1, dTds2, u=None, v=None, lonlims=None
         return
     
 def plot_predictions_osse(LON, LAT, To, dTds1o, dTds2o, dTdto, muSstar, Kxstar_vel, stdSstar, muustar, muvstar, lonlims, latlims, u=None, v=None, S=None, LONr=None, LATr=None, ur=None, vr=None, ugos=None, vgos=None, Sgos=None, params=None, datet=None, plimT=None, plimdTdt=None, plimTgrad=None, plimstdS=None, plimspeed=None, pscale=4, nx=17, ny=17, pscale_cred=None, plt_show=False, return_fig=False,nxr=None,nyr=None):    
+
+
+
     # plot overview of satellite products and predictions
 
+
     if pscale_cred is None:
+
+
         pscale_cred = pscale
     
     bool_original_data = (u is not None) & (v is not None) & (S is not None)
@@ -720,8 +1114,11 @@ def plot_predictions_osse(LON, LAT, To, dTds1o, dTds2o, dTdto, muSstar, Kxstar_v
         return
     
 def lon_transect(ax, lon, z_mu, z_std, lonlims, xtickspacing, z_true=None, title='', ylabel='', xlabel='', fig=None):            
+
     # assign figure
     if fig is None:
+
+
         fig = plt.gcf()
 
     # set axis limits 
@@ -750,7 +1147,10 @@ def lon_transect(ax, lon, z_mu, z_std, lonlims, xtickspacing, z_true=None, title
     pass
 
 def plot_transects(transect_fully_observed, transect_measurement_error, transect_dense_cloud, transect_sparse_cloud, lonlims, ylims,plt_show=False, return_fig=False):
+
     fig, ax = plt.subplots(2,2, figsize = (10,4.2), gridspec_kw={'hspace':0,'wspace':0})
+
+
 
     for i,dic in enumerate([transect_fully_observed,transect_measurement_error,transect_dense_cloud,transect_sparse_cloud]):
         axi = ax.flatten()[i]
@@ -789,7 +1189,10 @@ def plot_transects(transect_fully_observed, transect_measurement_error, transect
         plt.close(fig)
         
 def plot_dynamic_rossby(LON,LAT,Ro,lonlims,latlims,Ro_max = None, pdf_max = None, u=None, v=None, nx=17,ny=17,pscale=4, LONr=None,LATr=None,Ror=None, plt_show=False, return_fig=False):
+
     if LONr is None:
+
+
         bool_ref = False
     else:
         bool_ref = True
@@ -910,7 +1313,10 @@ def plot_dynamic_rossby(LON,LAT,Ro,lonlims,latlims,Ro_max = None, pdf_max = None
         plt.close(fig)
  
 def plot_particle_tracking(list_dict_tracks,lon,lat,muustar,muvstar,Kxstar_vel,T,lonlimsp,latlimsp,pscale=1,plt_show=False,return_fig=False):   
+
     LON, LAT = np.meshgrid(lon,lat)
+
+
 
     crop_lon = (lon >= lonlimsp[0]) & (lon <= lonlimsp[1])
     crop_lat = (lat >= latlimsp[0]) & (lat <= latlimsp[1])
@@ -955,12 +1361,6 @@ def plot_particle_tracking(list_dict_tracks,lon,lat,muustar,muvstar,Kxstar_vel,T
     ax0 = fig.add_axes([0, 0, 1, 1])
     ax0.set_xlim([0,1])
     ax0.set_ylim([0,1])
-
-    for i in range(Nx):
-        for jj in range(Ny):
-            ax[jj,i] = fig.add_axes([px_range[i], py_range[jj], pw, ph])  # [left, bottom, width, height]
-            ax[jj,i].set_xlim(lonlimsp)
-            ax[jj,i].set_ylim(latlimsp)
 
     cmapT = cmocean.tools.lighten(cmocean.cm.thermal,.8)
     plimT = [np.nanmin(Tc),np.nanmax(Tc)]
@@ -1048,7 +1448,10 @@ def plot_noise_metrics(
     plt_show=False,
     return_fig=False,
     ):
+
     fig, ax = plt.subplots(1,2,figsize=(9,3), constrained_layout=True)
+
+
     
     ax[0].plot(df_noise_gos_t.noise_sd,df_noise_gos_t.RMSE,'rs',ms=4,lw=1,label='GOS')
     ax[0].plot(df_noise_gp_num_t.noise_sd,df_noise_gp_num_t.RMSE,'ko',ms=4,lw=1,label='GP $\\tilde{\\theta}_{t}$')
@@ -1093,7 +1496,10 @@ def plot_time_metrics(
     plt_show=False,
     return_fig=False,
 ):
+
     fig, ax = plt.subplots(2,2,figsize=(9,6), constrained_layout=True)
+
+
 
     dict_time_1h = {
             'gprm': df_time_1h_gp_num_t,
@@ -1173,7 +1579,10 @@ def plot_cloud_metrics(
     plt_show=False,
     return_fig=False,
 ):
+
     fig, ax = plt.subplots(2,2,figsize=(9,6), constrained_layout=True)
+
+
 
     dict_cloud_sparse = {
             'gprm': df_cloud_sparse_gp_num_t,
@@ -1207,6 +1616,7 @@ def plot_cloud_metrics(
         ax[row,1].plot(dict_cloud["gprm"][val_name]*100,dict_cloud["gprm"].coverage90,'ko',ms=4,lw=1,label='GP $\\tilde{\\theta}_{t_1}$')
         ax[row,1].plot(dict_cloud["gprm_e"][val_name]*100,dict_cloud["gprm_e"].coverage90,'bo',ms=4,lw=1,mfc='w',label='GP $\\hat{\\theta}_t'+'$')
         ax[row,1].set(xlabel=xlabel, ylabel='P90')
+       
         ax[row,1].axhline(.9,ls=':',lw=1,color='k')
         ylims = ax[row,1].get_ylim()
         ax[row,1].set_ylim(ylims[0],ylims[1]+(ylims[1]-ylims[0])*.25)

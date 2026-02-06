@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>inversion_sst_gp.utils &#8212; SST currents 2025 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=27fed22d" />
+    <script src="../../_static/documentation_options.js?v=cb975c41"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for inversion_sst_gp.utils</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Utility functions for geographic and numerical computations.</span>
+
+<span class="sd">This module provides a collection of utility functions for tasks such as</span>
+<span class="sd">coordinate transformations, finite difference calculations, vorticity</span>
+<span class="sd">calculations, and JSON file handling.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">geographiclib.geodesic</span><span class="w"> </span><span class="kn">import</span> <span class="n">Geodesic</span>
+
+<div class="viewcode-block" id="find_centre">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.utils.find_centre">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">find_centre</span><span class="p">(</span><span class="n">lon</span><span class="p">,</span> <span class="n">lat</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculate the geographic center of a given set of longitude and latitude values.</span>
+
+<span class="sd">    Parameters:</span>
+<span class="sd">        lon (array-like): Array of longitude values.</span>
+<span class="sd">        lat (array-like): Array of latitude values.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        tuple: The latitude and longitude of the center.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">latlims</span> <span class="o">=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">lat</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">lat</span><span class="p">)]</span>
+
+
+    <span class="n">lonlims</span> <span class="o">=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">lon</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">lon</span><span class="p">)]</span>
+    <span class="n">latc</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">latlims</span><span class="p">)</span>
+    <span class="n">lonc</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">lonlims</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">latc</span><span class="p">,</span> <span class="n">lonc</span></div>
+
+
+<div class="viewcode-block" id="geo_to_car">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.utils.geo_to_car">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">geo_to_car</span><span class="p">(</span><span class="n">lon</span><span class="p">,</span> <span class="n">lat</span><span class="p">,</span> <span class="n">lonc</span><span class="p">,</span> <span class="n">latc</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Convert geographic coordinates to Cartesian coordinates with the center as origin.</span>
+
+<span class="sd">    Parameters:</span>
+<span class="sd">        lon (array-like): Array of longitude values.</span>
+<span class="sd">        lat (array-like): Array of latitude values.</span>
+<span class="sd">        lonc (float): Longitude of the center.</span>
+<span class="sd">        latc (float): Latitude of the center.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        tuple: Cartesian coordinates (X, Y).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># convert geographic coordinate to cartesian coordinates with the centre as origin        </span>
+    <span class="n">Nx</span>  <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">lon</span><span class="p">)</span>
+
+
+    <span class="n">Ny</span>  <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">lat</span><span class="p">)</span>
+    <span class="n">X</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">([</span><span class="n">Ny</span><span class="p">,</span><span class="n">Nx</span><span class="p">])</span>
+    <span class="n">Y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">([</span><span class="n">Ny</span><span class="p">,</span><span class="n">Nx</span><span class="p">])</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">Nx</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">Ny</span><span class="p">):</span> 
+            <span class="n">X</span><span class="p">[</span><span class="n">j</span><span class="p">,</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sign</span><span class="p">(</span><span class="n">lon</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">-</span><span class="n">lonc</span><span class="p">)</span><span class="o">*</span><span class="n">Geodesic</span><span class="o">.</span><span class="n">WGS84</span><span class="o">.</span><span class="n">Inverse</span><span class="p">(</span><span class="n">lat</span><span class="p">[</span><span class="n">j</span><span class="p">],</span><span class="n">lon</span><span class="p">[</span><span class="n">i</span><span class="p">],</span><span class="n">lat</span><span class="p">[</span><span class="n">j</span><span class="p">],</span><span class="n">lonc</span><span class="p">)[</span><span class="s1">&#39;s12&#39;</span><span class="p">]</span>
+            <span class="n">Y</span><span class="p">[</span><span class="n">j</span><span class="p">,</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sign</span><span class="p">(</span><span class="n">lat</span><span class="p">[</span><span class="n">j</span><span class="p">]</span><span class="o">-</span><span class="n">latc</span><span class="p">)</span><span class="o">*</span><span class="n">Geodesic</span><span class="o">.</span><span class="n">WGS84</span><span class="o">.</span><span class="n">Inverse</span><span class="p">(</span><span class="n">lat</span><span class="p">[</span><span class="n">j</span><span class="p">],</span><span class="n">lon</span><span class="p">[</span><span class="n">i</span><span class="p">],</span><span class="n">latc</span><span class="p">,</span><span class="n">lon</span><span class="p">[</span><span class="n">i</span><span class="p">])[</span><span class="s1">&#39;s12&#39;</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">X</span><span class="p">,</span><span class="n">Y</span></div>
+
+
+<div class="viewcode-block" id="calculate_grid_properties">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.utils.calculate_grid_properties">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">calculate_grid_properties</span><span class="p">(</span><span class="n">lon</span><span class="p">,</span> <span class="n">lat</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculate grid properties including Cartesian coordinates and meshgrid.</span>
+
+<span class="sd">    Parameters:</span>
+<span class="sd">        lon (array-like): Array of longitude values.</span>
+<span class="sd">        lat (array-like): Array of latitude values.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        tuple: Center coordinates, Cartesian coordinates, and meshgrid.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">latc</span><span class="p">,</span> <span class="n">lonc</span> <span class="o">=</span> <span class="n">find_centre</span><span class="p">(</span><span class="n">lon</span><span class="p">,</span> <span class="n">lat</span><span class="p">)</span>
+
+
+    <span class="n">X</span><span class="p">,</span> <span class="n">Y</span> <span class="o">=</span> <span class="n">geo_to_car</span><span class="p">(</span><span class="n">lon</span><span class="p">,</span> <span class="n">lat</span><span class="p">,</span> <span class="n">lonc</span><span class="p">,</span> <span class="n">latc</span><span class="p">)</span>
+    <span class="n">LON</span><span class="p">,</span> <span class="n">LAT</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">meshgrid</span><span class="p">(</span><span class="n">lon</span><span class="p">,</span> <span class="n">lat</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">lonc</span><span class="p">,</span> <span class="n">latc</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">Y</span><span class="p">,</span> <span class="n">LON</span><span class="p">,</span> <span class="n">LAT</span></div>
+
+
+<div class="viewcode-block" id="finite_difference_1d">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.utils.finite_difference_1d">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">finite_difference_1d</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Compute the finite difference of a 1D array, handling NaN values.</span>
+
+<span class="sd">    Parameters:</span>
+<span class="sd">        s (array-like): Independent variable.</span>
+<span class="sd">        x (array-like): Dependent variable.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ndarray: Finite difference values.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">inan</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> 
+
+
+    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">inan</span><span class="p">):</span> 
+        <span class="n">inanR</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">([</span><span class="n">inan</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span><span class="kc">True</span><span class="p">])</span> 
+        <span class="n">inanL</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">([</span><span class="kc">True</span><span class="p">,</span><span class="n">inan</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]])</span> 
+
+        <span class="n">sp</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">roll</span><span class="p">(</span><span class="n">s</span><span class="p">,</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span> 
+        <span class="n">xp</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">roll</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span> 
+        <span class="n">sm</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">roll</span><span class="p">(</span><span class="n">s</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span> 
+        <span class="n">xm</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">roll</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span> 
+
+        <span class="n">iforward</span> <span class="o">=</span> <span class="p">(</span><span class="o">~</span><span class="n">inan</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="o">~</span><span class="n">inanR</span><span class="p">)</span> <span class="o">&amp;</span> <span class="n">inanL</span>
+        <span class="n">icentral</span> <span class="o">=</span> <span class="p">(</span><span class="o">~</span><span class="n">inanL</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="o">~</span><span class="n">inanR</span><span class="p">)</span>
+        <span class="n">ibackward</span> <span class="o">=</span> <span class="p">(</span><span class="o">~</span><span class="n">inan</span><span class="p">)</span> <span class="o">&amp;</span> <span class="n">inanR</span> <span class="o">&amp;</span> <span class="p">(</span><span class="o">~</span><span class="n">inanL</span><span class="p">)</span>
+
+        <span class="n">dxds</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">))</span> 
+        <span class="n">dxds</span><span class="o">.</span><span class="n">fill</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
+        <span class="n">dxds</span><span class="p">[</span><span class="n">iforward</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">xp</span><span class="p">[</span><span class="n">iforward</span><span class="p">]</span><span class="o">-</span><span class="n">x</span><span class="p">[</span><span class="n">iforward</span><span class="p">])</span><span class="o">/</span><span class="p">(</span><span class="n">sp</span><span class="p">[</span><span class="n">iforward</span><span class="p">]</span><span class="o">-</span><span class="n">s</span><span class="p">[</span><span class="n">iforward</span><span class="p">])</span> 
+        <span class="n">dxds</span><span class="p">[</span><span class="n">icentral</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">xp</span><span class="p">[</span><span class="n">icentral</span><span class="p">]</span><span class="o">-</span><span class="n">xm</span><span class="p">[</span><span class="n">icentral</span><span class="p">])</span><span class="o">/</span><span class="p">(</span><span class="n">sp</span><span class="p">[</span><span class="n">icentral</span><span class="p">]</span><span class="o">-</span><span class="n">sm</span><span class="p">[</span><span class="n">icentral</span><span class="p">])</span>
+        <span class="n">dxds</span><span class="p">[</span><span class="n">ibackward</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="n">ibackward</span><span class="p">]</span><span class="o">-</span><span class="n">xm</span><span class="p">[</span><span class="n">ibackward</span><span class="p">])</span><span class="o">/</span><span class="p">(</span><span class="n">s</span><span class="p">[</span><span class="n">ibackward</span><span class="p">]</span><span class="o">-</span><span class="n">sm</span><span class="p">[</span><span class="n">ibackward</span><span class="p">])</span> 
+    <span class="k">else</span><span class="p">:</span> 
+        <span class="n">forward_diff</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="o">/</span><span class="p">(</span><span class="n">s</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="n">s</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> 
+        <span class="n">central_diff</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">2</span><span class="p">:]</span><span class="o">-</span><span class="n">x</span><span class="p">[:</span><span class="o">-</span><span class="mi">2</span><span class="p">])</span><span class="o">/</span><span class="p">(</span><span class="n">s</span><span class="p">[</span><span class="mi">2</span><span class="p">:]</span><span class="o">-</span><span class="n">s</span><span class="p">[:</span><span class="o">-</span><span class="mi">2</span><span class="p">])</span>
+        <span class="n">backward_diff</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="n">x</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">])</span><span class="o">/</span><span class="p">(</span><span class="n">s</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="n">s</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">])</span> 
+
+        <span class="n">dxds</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">([</span><span class="n">forward_diff</span><span class="p">,</span><span class="n">central_diff</span><span class="p">,</span><span class="n">backward_diff</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">dxds</span>   </div>
+
+
+<div class="viewcode-block" id="finite_difference_2d">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.utils.finite_difference_2d">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">finite_difference_2d</span><span class="p">(</span><span class="n">s1_2d</span><span class="p">,</span> <span class="n">s2_2d</span><span class="p">,</span> <span class="n">x_2d</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Compute the finite difference of a 2D array along two dimensions.</span>
+
+<span class="sd">    Parameters:</span>
+<span class="sd">        s1_2d (array-like): Independent variable for the first dimension.</span>
+<span class="sd">        s2_2d (array-like): Independent variable for the second dimension.</span>
+<span class="sd">        x_2d (array-like): Dependent variable.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        tuple: Finite differences along both dimensions.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">N2</span><span class="p">,</span><span class="n">N1</span> <span class="o">=</span> <span class="n">x_2d</span><span class="o">.</span><span class="n">shape</span>
+
+
+    <span class="n">dxds1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">finite_difference_1d</span><span class="p">(</span><span class="n">s1_2d</span><span class="p">[</span><span class="n">i</span><span class="p">,:],</span><span class="n">x_2d</span><span class="p">[</span><span class="n">i</span><span class="p">,:])</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">N2</span><span class="p">)])</span>
+    <span class="n">dxds2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">finite_difference_1d</span><span class="p">(</span><span class="n">s2_2d</span><span class="p">[:,</span><span class="n">i</span><span class="p">],</span><span class="n">x_2d</span><span class="p">[:,</span><span class="n">i</span><span class="p">])</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">N1</span><span class="p">)])</span><span class="o">.</span><span class="n">T</span>
+    <span class="k">return</span> <span class="n">dxds1</span><span class="p">,</span><span class="n">dxds2</span></div>
+
+
+<div class="viewcode-block" id="calculate_vorticity">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.utils.calculate_vorticity">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">calculate_vorticity</span><span class="p">(</span><span class="n">s1_2d</span><span class="p">,</span> <span class="n">s2_2d</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculate the vorticity of a 2D velocity field.</span>
+
+<span class="sd">    Parameters:</span>
+<span class="sd">        s1_2d (array-like): Independent variable for the first dimension.</span>
+<span class="sd">        s2_2d (array-like): Independent variable for the second dimension.</span>
+<span class="sd">        u (array-like): Velocity component in the first dimension.</span>
+<span class="sd">        v (array-like): Velocity component in the second dimension.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ndarray: Vorticity values.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">_</span><span class="p">,</span> <span class="n">dudy</span> <span class="o">=</span> <span class="n">finite_difference_2d</span><span class="p">(</span><span class="n">s1_2d</span><span class="p">,</span><span class="n">s2_2d</span><span class="p">,</span><span class="n">u</span><span class="p">)</span>
+
+
+    <span class="n">dvdx</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">finite_difference_2d</span><span class="p">(</span><span class="n">s1_2d</span><span class="p">,</span><span class="n">s2_2d</span><span class="p">,</span><span class="n">v</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">dvdx</span> <span class="o">-</span> <span class="n">dudy</span></div>
+
+
+<div class="viewcode-block" id="calculate_coriolis_parameter">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.utils.calculate_coriolis_parameter">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">calculate_coriolis_parameter</span><span class="p">(</span><span class="n">latitude_deg</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculate the Coriolis parameter for a given latitude.</span>
+
+<span class="sd">    Parameters:</span>
+<span class="sd">        latitude_deg (float): Latitude in degrees.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        float: Coriolis parameter.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">omega</span> <span class="o">=</span> <span class="mf">7.2921e-5</span>
+
+
+    <span class="n">latitude_rad</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">deg2rad</span><span class="p">(</span><span class="n">latitude_deg</span><span class="p">)</span>
+    <span class="k">return</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">omega</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">latitude_rad</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="calculate_dynamic_rossby_number">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.utils.calculate_dynamic_rossby_number">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">calculate_dynamic_rossby_number</span><span class="p">(</span><span class="n">s1_2d</span><span class="p">,</span> <span class="n">s2_2d</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">latitude_deg</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculate the dynamic Rossby number for a 2D velocity field.</span>
+
+<span class="sd">    Parameters:</span>
+<span class="sd">        s1_2d (array-like): Independent variable for the first dimension.</span>
+<span class="sd">        s2_2d (array-like): Independent variable for the second dimension.</span>
+<span class="sd">        u (array-like): Velocity component in the first dimension.</span>
+<span class="sd">        v (array-like): Velocity component in the second dimension.</span>
+<span class="sd">        latitude_deg (float): Latitude in degrees.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ndarray: Dynamic Rossby number values.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">vorticity</span> <span class="o">=</span> <span class="n">calculate_vorticity</span><span class="p">(</span><span class="n">s1_2d</span><span class="p">,</span><span class="n">s2_2d</span><span class="p">,</span><span class="n">u</span><span class="p">,</span><span class="n">v</span><span class="p">)</span>
+
+
+    <span class="n">coriolis_parameter</span> <span class="o">=</span> <span class="n">calculate_coriolis_parameter</span><span class="p">(</span><span class="n">latitude_deg</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">vorticity</span><span class="o">/</span><span class="n">coriolis_parameter</span></div>
+
+
+<div class="viewcode-block" id="map_val">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.utils.map_val">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">map_val</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">mask</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Map values to a masked array.</span>
+
+<span class="sd">    Parameters:</span>
+<span class="sd">        x (array-like): Values to map.</span>
+<span class="sd">        mask (array-like): Boolean mask array.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ndarray: Mapped values.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># map value given mask</span>
+    <span class="n">xf</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">shape</span><span class="p">(</span><span class="n">mask</span><span class="p">))</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">:]),</span><span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span> <span class="c1"># allocate</span>
+
+
+    <span class="n">xf</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span> <span class="o">=</span> <span class="n">x</span>
+    <span class="k">return</span> <span class="n">xf</span></div>
+
+
+<div class="viewcode-block" id="map_mask">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.utils.map_mask">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">map_mask</span><span class="p">(</span><span class="n">maski</span><span class="p">,</span> <span class="n">mask</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Map a mask to another mask.</span>
+
+<span class="sd">    Parameters:</span>
+<span class="sd">        maski (array-like): Input mask.</span>
+<span class="sd">        mask (array-like): Target mask.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ndarray: Mapped mask.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># map maski given mask</span>
+    <span class="n">maskf</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">mask</span><span class="p">),</span><span class="kc">False</span><span class="p">)</span> <span class="c1"># allocate</span>
+
+
+    <span class="n">maskf</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span> <span class="o">=</span> <span class="n">maski</span>
+    <span class="k">return</span> <span class="n">maskf</span></div>
+
+
+<div class="viewcode-block" id="extract_params">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.utils.extract_params">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">extract_params</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="nb">type</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Extract parameters from a CSV file based on a specific value.</span>
+
+<span class="sd">    Parameters:</span>
+<span class="sd">        filename (str): Path to the CSV file.</span>
+<span class="sd">        name (str): Column name to match.</span>
+<span class="sd">        value: Value to match in the column.</span>
+<span class="sd">        type (str): Type of parameters to extract.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        dict: Extracted parameters.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">if</span> <span class="nb">type</span> <span class="o">==</span> <span class="s2">&quot;gp&quot;</span><span class="p">:</span>
+
+
+        <span class="n">keys</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;sigma_u&quot;</span><span class="p">,</span><span class="s2">&quot;l_u&quot;</span><span class="p">,</span><span class="s2">&quot;tau_u&quot;</span><span class="p">,</span><span class="s2">&quot;l_v&quot;</span><span class="p">,</span><span class="s2">&quot;tau_v&quot;</span><span class="p">,</span><span class="s2">&quot;sigma_v&quot;</span><span class="p">,</span><span class="s2">&quot;sigma_S&quot;</span><span class="p">,</span><span class="s2">&quot;l_S&quot;</span><span class="p">,</span><span class="s2">&quot;tau_S&quot;</span><span class="p">,</span><span class="s2">&quot;sigma_tau&quot;</span><span class="p">]</span>
+    <span class="k">elif</span> <span class="nb">type</span> <span class="o">==</span> <span class="s2">&quot;num_est&quot;</span><span class="p">:</span>
+        <span class="n">keys</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;sigma_u&quot;</span><span class="p">,</span><span class="s2">&quot;l_u&quot;</span><span class="p">,</span><span class="s2">&quot;tau_u&quot;</span><span class="p">,</span><span class="s2">&quot;l_v&quot;</span><span class="p">,</span><span class="s2">&quot;tau_v&quot;</span><span class="p">,</span><span class="s2">&quot;sigma_v&quot;</span><span class="p">,</span><span class="s2">&quot;sigma_S&quot;</span><span class="p">,</span><span class="s2">&quot;l_S&quot;</span><span class="p">,</span><span class="s2">&quot;tau_S&quot;</span><span class="p">]</span>
+    <span class="k">elif</span> <span class="nb">type</span> <span class="o">==</span> <span class="s2">&quot;gos&quot;</span><span class="p">:</span>
+        <span class="n">keys</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;n&quot;</span><span class="p">]</span>
+    
+    <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+    <span class="n">row</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">df</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">==</span> <span class="n">value</span><span class="p">]</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="k">return</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">row</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">keys</span><span class="p">}</span> <span class="k">if</span> <span class="n">keys</span> <span class="k">else</span> <span class="n">row</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="NumpyEncoder">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.utils.NumpyEncoder">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">NumpyEncoder</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">JSONEncoder</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Custom JSON encoder for handling NumPy data types.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="NumpyEncoder.default">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.utils.NumpyEncoder.default">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">default</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">):</span>
+
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">integer</span><span class="p">,)):</span>
+            <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">floating</span><span class="p">,)):</span>
+            <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,)):</span>
+            <span class="k">return</span> <span class="n">obj</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+        <span class="k">return</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">default</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span></div>
+</div>
+
+    
+<div class="viewcode-block" id="save_json">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.utils.save_json">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">save_json</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">path</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Save data to a JSON file.</span>
+
+<span class="sd">    Parameters:</span>
+<span class="sd">        data (dict): Data to save.</span>
+<span class="sd">        path (str): Path to the JSON file.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># save variable to json</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">json_file</span><span class="p">:</span>
+
+
+        <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">json_file</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="bp">cls</span><span class="o">=</span><span class="n">NumpyEncoder</span><span class="p">)</span>
+    <span class="k">pass</span></div>
+
+
+<div class="viewcode-block" id="load_json">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.utils.load_json">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_json</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Load data from a JSON file.</span>
+
+<span class="sd">    Parameters:</span>
+<span class="sd">        path (str): Path to the JSON file.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        dict: Loaded data.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># load variable from json</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s1">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">json_file</span><span class="p">:</span>
+
+
+        <span class="n">data</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">json_file</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">data</span></div>
+
+
+<div class="viewcode-block" id="calculate_mean_window_1d">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.utils.calculate_mean_window_1d">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">calculate_mean_window_1d</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">ignore_nan</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculate the mean of every n elements in a 1D array.</span>
+
+<span class="sd">    Parameters:</span>
+<span class="sd">        val (array-like): Input array.</span>
+<span class="sd">        n (int): Window size.</span>
+<span class="sd">        ignore_nan (bool): Whether to ignore NaN values.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ndarray: Array of mean values.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># calculate the mean of every n elements</span>
+    <span class="n">Nx</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">val</span><span class="p">)</span>
+
+
+    <span class="n">Nxm</span> <span class="o">=</span> <span class="n">Nx</span> <span class="o">//</span> <span class="n">n</span> 
+    <span class="n">valm</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">([</span><span class="n">Nxm</span><span class="p">])</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">Nxm</span><span class="p">):</span> 
+        <span class="n">val_window</span> <span class="o">=</span> <span class="n">val</span><span class="p">[</span><span class="n">i</span><span class="o">*</span><span class="n">n</span><span class="p">:(</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="n">n</span><span class="p">]</span>
+        <span class="n">mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">logical_not</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">val_window</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">ignore_nan</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">mask</span><span class="p">):</span>
+                <span class="n">valm</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">val_window</span><span class="p">[</span><span class="n">mask</span><span class="p">])</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">valm</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">mask</span><span class="p">):</span>
+                <span class="n">valm</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">val_window</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">valm</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+    <span class="k">return</span> <span class="n">valm</span></div>
+
+
+<div class="viewcode-block" id="calculate_mean_window_2d">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.utils.calculate_mean_window_2d">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">calculate_mean_window_2d</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="n">nx</span><span class="p">,</span> <span class="n">ny</span><span class="p">,</span> <span class="n">ignore_nan</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculate the mean of nx by ny grids in a 2D array.</span>
+
+<span class="sd">    Parameters:</span>
+<span class="sd">        val (array-like): Input 2D array.</span>
+<span class="sd">        nx (int): Grid size in the x-dimension.</span>
+<span class="sd">        ny (int): Grid size in the y-dimension.</span>
+<span class="sd">        ignore_nan (bool): Whether to ignore NaN values.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        ndarray: Array of mean values for each grid.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># calculate the mean of a nx by ny grid</span>
+    <span class="n">Ny</span><span class="p">,</span> <span class="n">Nx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">shape</span><span class="p">(</span><span class="n">val</span><span class="p">)</span>
+
+
+    <span class="n">Nym</span> <span class="o">=</span> <span class="n">Ny</span> <span class="o">//</span> <span class="n">nx</span>
+    <span class="n">Nxm</span> <span class="o">=</span> <span class="n">Nx</span> <span class="o">//</span> <span class="n">ny</span>
+    <span class="n">valm</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">([</span><span class="n">Nym</span><span class="p">,</span> <span class="n">Nxm</span><span class="p">])</span> 
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">Nxm</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">Nym</span><span class="p">):</span>
+            <span class="n">valb</span> <span class="o">=</span> <span class="n">val</span><span class="p">[</span><span class="n">j</span><span class="o">*</span><span class="n">ny</span><span class="p">:(</span><span class="n">j</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="n">ny</span><span class="p">,</span> <span class="n">i</span><span class="o">*</span><span class="n">nx</span><span class="p">:(</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="n">nx</span><span class="p">]</span> 
+            <span class="n">mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">logical_not</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">valb</span><span class="p">))</span> 
+            <span class="k">if</span> <span class="n">ignore_nan</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">mask</span><span class="p">):</span>
+                    <span class="n">valm</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">valb</span><span class="p">[</span><span class="n">mask</span><span class="p">])</span> 
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">valm</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="n">mask</span><span class="p">):</span>
+                    <span class="n">valm</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">valb</span><span class="p">)</span> 
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">valm</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+    <span class="k">return</span> <span class="n">valm</span></div>
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">SST currents</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../api.html">API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api.html#simulation">Simulation</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Rick de Kreij.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.0.4</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

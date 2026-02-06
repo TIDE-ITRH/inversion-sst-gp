@@ -1,0 +1,5 @@
+Experiment,GP RMSE (m/s),GP coverage90 (%),GOS RMSE (m/s)
+Fully observed,4.6874e-02,84.2400,7.3835e-02
+Measurement error,7.0485e-02,85.7000,9.4020e-02
+Dense cloud,7.0349e-02,84.3400,-
+Sparse cloud,6.7639e-02,77.2600,-

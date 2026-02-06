@@ -22,6 +22,9 @@ To reproduce the results, please follow these steps:
       ```bash
       poetry install
       ```  
+      *conda create -n sstinv python=3.12
+      conda activate sstinv
+      *
     - Alternative: install the package with pip  
       ```bash
       pip install ./pkg

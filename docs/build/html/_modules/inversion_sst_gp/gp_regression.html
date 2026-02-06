@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>inversion_sst_gp.gp_regression &#8212; SST currents 2025 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=27fed22d" />
+    <script src="../../_static/documentation_options.js?v=cb975c41"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for inversion_sst_gp.gp_regression</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Gaussian Process Regression Module.</span>
+
+<span class="sd">This module provides functionality for performing Gaussian Process (GP) regression</span>
+<span class="sd">to jointly estimate velocity and scalar fields. It includes the `GPRegressionJoint`</span>
+<span class="sd">class, which implements a GP model for predicting spatial and temporal derivatives</span>
+<span class="sd">of temperature fields based on observed data.</span>
+
+<span class="sd">Key Features:</span>
+<span class="sd">- Joint estimation of velocity and scalar fields.</span>
+<span class="sd">- Support for polynomial basis functions for velocity and scalar fields.</span>
+<span class="sd">- Efficient computation using distance matrices and block diagonal structures.</span>
+
+<span class="sd">Dependencies:</span>
+<span class="sd">- NumPy for numerical operations.</span>
+<span class="sd">- SciPy for linear algebra and optimization routines.</span>
+<span class="sd">- Utilities from the `inversion_sst_gp` package for data mapping.</span>
+
+<span class="sd">Typical Use Case:</span>
+<span class="sd">This module is designed for applications in geophysical and environmental modeling,</span>
+<span class="sd">where Gaussian Process regression is used to infer velocity and scalar fields from</span>
+<span class="sd">observational data.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">numpy.linalg</span><span class="w"> </span><span class="kn">import</span> <span class="n">multi_dot</span> <span class="k">as</span> <span class="n">mdot</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">scipy.linalg</span><span class="w"> </span><span class="kn">import</span> <span class="n">block_diag</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">scipy.linalg.lapack</span><span class="w"> </span><span class="kn">import</span> <span class="n">dpotrf</span><span class="p">,</span> <span class="n">dpotri</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">scipy.optimize</span><span class="w"> </span><span class="kn">import</span> <span class="n">minimize</span><span class="p">,</span> <span class="n">shgo</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">scipy.spatial</span><span class="w"> </span><span class="kn">import</span> <span class="n">distance_matrix</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">inversion_sst_gp.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">map_val</span>
+
+
+<div class="viewcode-block" id="GPRegressionJoint">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.GPRegressionJoint">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">GPRegressionJoint</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Gaussian Process Regression Model for joint estimation of velocity and scalar fields.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    dTds1o : ndarray</span>
+<span class="sd">        Observed spatial derivative of temperature in the first direction.</span>
+<span class="sd">    dTds2o : ndarray</span>
+<span class="sd">        Observed spatial derivative of temperature in the second direction.</span>
+<span class="sd">    dTdto : ndarray</span>
+<span class="sd">        Observed temporal derivative of temperature.</span>
+<span class="sd">    tstep : float</span>
+<span class="sd">        Time step for the simulation.</span>
+<span class="sd">    X : ndarray</span>
+<span class="sd">        Grid of x-coordinates.</span>
+<span class="sd">    Y : ndarray</span>
+<span class="sd">        Grid of y-coordinates.</span>
+<span class="sd">    maskp : ndarray</span>
+<span class="sd">        Mask for prediction locations.</span>
+<span class="sd">    degreeu, degreev, degreeS : int, optional</span>
+<span class="sd">        Degrees for polynomial basis functions for velocity and scalar fields.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="GPRegressionJoint.__init__">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.GPRegressionJoint.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dTds1o</span><span class="p">,</span> <span class="n">dTds2o</span><span class="p">,</span> <span class="n">dTdto</span><span class="p">,</span> <span class="n">tstep</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">Y</span><span class="p">,</span> <span class="n">maskp</span><span class="p">,</span> <span class="n">degreeu</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">degreev</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">degreeS</span><span class="o">=</span><span class="mi">2</span>
+    <span class="p">):</span>  
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes the GPRegressionJoint instance.</span>
+<span class="sd">        </span>
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        dTds1o : ndarray</span>
+<span class="sd">            Observed spatial derivative of temperature in the first direction.</span>
+<span class="sd">        dTds2o : ndarray</span>
+<span class="sd">            Observed spatial derivative of temperature in the second direction.</span>
+<span class="sd">        dTdto : ndarray</span>
+<span class="sd">            Observed temporal derivative of temperature.</span>
+<span class="sd">        tstep : float</span>
+<span class="sd">            Time step for the simulation.</span>
+<span class="sd">        X : ndarray</span>
+<span class="sd">            Grid of x-coordinates.</span>
+<span class="sd">        Y : ndarray</span>
+<span class="sd">            Grid of y-coordinates.</span>
+<span class="sd">        maskp : ndarray</span>
+<span class="sd">            Mask for prediction locations.</span>
+<span class="sd">        degreeu, degreev, degreeS : int, optional</span>
+<span class="sd">            Degrees for polynomial basis functions for velocity and scalar fields.</span>
+<span class="sd">            </span>
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        None</span>
+<span class="sd">        &quot;&quot;&quot;</span>      
+        <span class="bp">self</span><span class="o">.</span><span class="n">dTds1o</span> <span class="o">=</span> <span class="n">dTds1o</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dTds2o</span> <span class="o">=</span> <span class="n">dTds2o</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dTdto</span> <span class="o">=</span> <span class="n">dTdto</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">maskp</span> <span class="o">=</span> <span class="n">maskp</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tstep</span> <span class="o">=</span> <span class="n">tstep</span>
+
+        <span class="c1"># mask</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">masko</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">logical_not</span><span class="p">(</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dTds1o</span><span class="p">)</span> <span class="o">|</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dTds2o</span><span class="p">)</span> <span class="o">|</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dTdto</span><span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="c1"># dimensions</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">m</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">masko</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">n</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">maskp</span><span class="p">)</span>
+
+        <span class="c1"># grid</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">X</span><span class="p">,</span> <span class="n">Y</span><span class="p">],</span><span class="mi">2</span><span class="p">)</span>
+        <span class="n">sp</span> <span class="o">=</span> <span class="n">s</span><span class="p">[</span><span class="n">maskp</span><span class="p">]</span>
+        <span class="n">phiu</span> <span class="o">=</span> <span class="n">phi</span><span class="p">(</span><span class="n">sp</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">sp</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">degreeu</span><span class="p">)</span>
+        <span class="n">phiv</span> <span class="o">=</span> <span class="n">phi</span><span class="p">(</span><span class="n">sp</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">sp</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">degreev</span><span class="p">)</span>
+        <span class="n">phiS</span> <span class="o">=</span> <span class="n">phi</span><span class="p">(</span><span class="n">sp</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">sp</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">degreeS</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">phix</span> <span class="o">=</span> <span class="n">block_diag</span><span class="p">(</span><span class="n">phiu</span><span class="p">,</span> <span class="n">phiv</span><span class="p">,</span> <span class="n">phiS</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">d</span> <span class="o">=</span> <span class="n">distance_matrix</span><span class="p">(</span><span class="n">sp</span><span class="p">,</span> <span class="n">sp</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">match_mask</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">d</span> <span class="o">==</span> <span class="mi">0</span>
+
+        <span class="c1"># construct HA matrix</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">HA</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">construct_HA</span><span class="p">()</span>
+
+        <span class="c1"># data vector</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">z</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dTdto</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">masko</span><span class="p">]</span></div>
+
+
+<div class="viewcode-block" id="GPRegressionJoint.construct_HA">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.GPRegressionJoint.construct_HA">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">construct_HA</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Constructs the HA matrix, which relates the observed derivatives to the prediction locations.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        ndarray</span>
+<span class="sd">            The constructed HA matrix.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># construct HA matrix</span>
+        <span class="n">maskp_flat</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">maskp</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+        <span class="n">masko_flat</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">masko</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+        <span class="n">dTds1o_flat</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dTds1o</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+        <span class="n">dTds2o_flat</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dTds2o</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+        <span class="n">HA</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">m</span><span class="p">,</span> <span class="mi">3</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">n</span><span class="p">])</span>  <span class="c1"># allocate</span>
+        <span class="n">idxp</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">maskp_flat</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>  <span class="c1"># indices of prediction locations</span>
+
+        <span class="n">j</span> <span class="o">=</span> <span class="mi">0</span>  <span class="c1"># iteration index over observation</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">idxp</span><span class="p">):</span>  <span class="c1"># loop over prediction locations</span>
+            <span class="k">if</span> <span class="n">masko_flat</span><span class="p">[</span><span class="n">idx</span><span class="p">]:</span>  <span class="c1"># when prediction location is a observation location</span>
+                <span class="c1"># set HA components</span>
+                <span class="n">HA</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="o">-</span><span class="n">dTds1o_flat</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+                <span class="n">HA</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="n">i</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">n</span><span class="p">]</span> <span class="o">=</span> <span class="o">-</span><span class="n">dTds2o_flat</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+                <span class="n">HA</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">n</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+                <span class="n">j</span> <span class="o">+=</span> <span class="mi">1</span>  <span class="c1"># next observation</span>
+        <span class="k">return</span> <span class="n">HA</span></div>
+
+
+<div class="viewcode-block" id="GPRegressionJoint.construct_Kx">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.GPRegressionJoint.construct_Kx">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">construct_Kx</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Constructs the covariance matrix Kx for the velocity and scalar fields.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        params : dict</span>
+<span class="sd">            Dictionary of parameters for the covariance kernel.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        ndarray</span>
+<span class="sd">            The block diagonal covariance matrix Kx.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># construct Kx</span>
+        <span class="n">Ku</span> <span class="o">=</span> <span class="n">kernel_matern_3_2_var</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">d</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">match_mask</span><span class="p">,</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;sigma_u&quot;</span><span class="p">],</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;l_u&quot;</span><span class="p">],</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;tau_u&quot;</span><span class="p">]</span>
+        <span class="p">)</span>
+        <span class="n">Kv</span> <span class="o">=</span> <span class="n">kernel_matern_3_2_var</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">d</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">match_mask</span><span class="p">,</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;sigma_v&quot;</span><span class="p">],</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;l_v&quot;</span><span class="p">],</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;tau_v&quot;</span><span class="p">]</span>
+        <span class="p">)</span>
+        <span class="n">KS</span> <span class="o">=</span> <span class="n">kernel_matern_3_2_var</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">d</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">match_mask</span><span class="p">,</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;sigma_S&quot;</span><span class="p">],</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;l_S&quot;</span><span class="p">],</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;tau_S&quot;</span><span class="p">]</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">block_diag</span><span class="p">(</span><span class="n">Ku</span><span class="p">,</span> <span class="n">Kv</span><span class="p">,</span> <span class="n">KS</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="GPRegressionJoint.construct_Kz">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.GPRegressionJoint.construct_Kz">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">construct_Kz</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">HA</span><span class="p">,</span> <span class="n">Kx</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Constructs the covariance matrix Kz for the observed data.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        params : dict</span>
+<span class="sd">            Dictionary of parameters for the covariance kernel.</span>
+<span class="sd">        HA : ndarray</span>
+<span class="sd">            The HA matrix.</span>
+<span class="sd">        Kx : ndarray</span>
+<span class="sd">            The covariance matrix Kx.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        ndarray</span>
+<span class="sd">            The covariance matrix Kz.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># construct Kz</span>
+        <span class="n">Ktildetau</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;sigma_tau&quot;</span><span class="p">]</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">/</span> <span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">tstep</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">m</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">mdot</span><span class="p">([</span><span class="n">HA</span><span class="p">,</span> <span class="n">Kx</span><span class="p">,</span> <span class="n">HA</span><span class="o">.</span><span class="n">T</span><span class="p">])</span> <span class="o">+</span> <span class="n">Ktildetau</span></div>
+
+
+<div class="viewcode-block" id="GPRegressionJoint.calculate_rlml_z">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.GPRegressionJoint.calculate_rlml_z">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calculate_rlml_z</span><span class="p">(</span>
+        <span class="n">params_val</span><span class="p">,</span>
+        <span class="n">params_key</span><span class="p">,</span>
+        <span class="n">gprm</span><span class="p">,</span>
+        <span class="n">const_params</span><span class="p">,</span>
+        <span class="n">penalty_params</span><span class="p">,</span>
+        <span class="n">share_len</span><span class="p">,</span>
+        <span class="n">share_sigma</span><span class="p">,</span>
+        <span class="n">share_tau</span><span class="p">,</span>
+        <span class="n">solve_log</span><span class="p">,</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Calculates the restricted log marginal likelihood of the observed data.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        params_val : list</span>
+<span class="sd">            Values of the parameters to optimize.</span>
+<span class="sd">        params_key : list</span>
+<span class="sd">            Keys corresponding to the parameters to optimize.</span>
+<span class="sd">        gprm : GPRegressionJoint</span>
+<span class="sd">            The Gaussian Process Regression Model instance.</span>
+<span class="sd">        const_params : dict</span>
+<span class="sd">            Dictionary of constant parameters.</span>
+<span class="sd">        penalty_params : dict</span>
+<span class="sd">            Dictionary of penalty parameters.</span>
+<span class="sd">        share_len : bool</span>
+<span class="sd">            Whether to share length scale parameters between velocity components.</span>
+<span class="sd">        share_sigma : bool</span>
+<span class="sd">            Whether to share signal variance parameters between velocity components.</span>
+<span class="sd">        share_tau : bool</span>
+<span class="sd">            Whether to share noise variance parameters between velocity components.</span>
+<span class="sd">        solve_log : bool</span>
+<span class="sd">            Whether to solve in the log space.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        float</span>
+<span class="sd">            The restricted log marginal likelihood value.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="c1"># couple variable</span>
+        <span class="n">z</span> <span class="o">=</span> <span class="n">gprm</span><span class="o">.</span><span class="n">z</span>
+        <span class="n">phix</span> <span class="o">=</span> <span class="n">gprm</span><span class="o">.</span><span class="n">phix</span>
+        <span class="n">HA</span> <span class="o">=</span> <span class="n">gprm</span><span class="o">.</span><span class="n">HA</span>
+
+        <span class="c1"># make dictionary of parameters</span>
+        <span class="k">if</span> <span class="n">solve_log</span><span class="p">:</span>
+            <span class="n">params_val_i</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">params_val</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">params_val_i</span> <span class="o">=</span> <span class="n">params_val</span>
+        <span class="n">params</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">params_key</span><span class="p">,</span> <span class="n">params_val_i</span><span class="p">))</span> <span class="o">|</span> <span class="n">const_params</span>
+        <span class="k">if</span> <span class="n">share_len</span><span class="p">:</span>
+            <span class="n">params</span><span class="p">[</span><span class="s2">&quot;l_v&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;l_u&quot;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">share_sigma</span><span class="p">:</span>
+            <span class="n">params</span><span class="p">[</span><span class="s2">&quot;sigma_v&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;sigma_u&quot;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">share_tau</span><span class="p">:</span>
+            <span class="n">params</span><span class="p">[</span><span class="s2">&quot;tau_v&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;tau_u&quot;</span><span class="p">]</span>
+
+        <span class="c1"># covariance matrix</span>
+        <span class="n">Kx</span> <span class="o">=</span> <span class="n">gprm</span><span class="o">.</span><span class="n">construct_Kx</span><span class="p">(</span><span class="n">params</span><span class="p">)</span>  <span class="c1"># construct Kx</span>
+        <span class="n">Kz</span> <span class="o">=</span> <span class="n">gprm</span><span class="o">.</span><span class="n">construct_Kz</span><span class="p">(</span><span class="n">params</span><span class="p">,</span> <span class="n">HA</span><span class="p">,</span> <span class="n">Kx</span><span class="p">)</span>  <span class="c1"># construct Kz</span>
+        <span class="n">Lz</span> <span class="o">=</span> <span class="n">chol</span><span class="p">(</span><span class="n">Kz</span><span class="p">)</span>
+        <span class="n">Qz</span> <span class="o">=</span> <span class="n">chol2inv</span><span class="p">(</span><span class="n">Lz</span><span class="p">)</span>
+
+        <span class="c1"># universal kriging</span>
+        <span class="n">betacov</span> <span class="o">=</span> <span class="n">cholinv</span><span class="p">(</span><span class="n">mdot</span><span class="p">([</span><span class="n">phix</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">HA</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">Qz</span><span class="p">,</span> <span class="n">HA</span><span class="p">,</span> <span class="n">phix</span><span class="p">]))</span>
+        <span class="n">beta</span> <span class="o">=</span> <span class="n">mdot</span><span class="p">([</span><span class="n">betacov</span><span class="p">,</span> <span class="n">phix</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">HA</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">Qz</span><span class="p">,</span> <span class="n">z</span><span class="p">])</span>
+        <span class="n">mux</span> <span class="o">=</span> <span class="n">mdot</span><span class="p">([</span><span class="n">phix</span><span class="p">,</span> <span class="n">beta</span><span class="p">])</span>
+
+        <span class="c1"># penalty</span>
+        <span class="n">penalty</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">param_name</span> <span class="ow">in</span> <span class="n">penalty_params</span><span class="p">:</span>
+            <span class="n">mu</span><span class="p">,</span> <span class="n">sigma</span> <span class="o">=</span> <span class="n">penalty_params</span><span class="p">[</span><span class="n">param_name</span><span class="p">]</span>
+            <span class="n">penalty</span> <span class="o">+=</span> <span class="n">penalty_gauss_centre</span><span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="n">param_name</span><span class="p">],</span> <span class="n">mu</span><span class="p">,</span> <span class="n">sigma</span><span class="p">)</span>
+
+        <span class="c1"># compute rlml (withouth constant)</span>
+        <span class="k">return</span> <span class="p">(</span>
+            <span class="o">-</span><span class="mi">1</span> <span class="o">/</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">mdot</span><span class="p">([(</span><span class="n">z</span> <span class="o">-</span> <span class="n">mdot</span><span class="p">([</span><span class="n">HA</span><span class="p">,</span> <span class="n">mux</span><span class="p">]))</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">Qz</span><span class="p">,</span> <span class="n">z</span> <span class="o">-</span> <span class="n">mdot</span><span class="p">([</span><span class="n">HA</span><span class="p">,</span> <span class="n">mux</span><span class="p">])])</span>
+            <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">Lz</span><span class="p">)))</span>
+            <span class="o">-</span> <span class="mi">1</span> <span class="o">/</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">det</span><span class="p">(</span><span class="n">mdot</span><span class="p">([</span><span class="n">phix</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">HA</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">Qz</span><span class="p">,</span> <span class="n">HA</span><span class="p">,</span> <span class="n">phix</span><span class="p">])))</span>
+            <span class="o">+</span> <span class="n">penalty</span>
+        <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="GPRegressionJoint.calculate_negative_rlml_z">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.GPRegressionJoint.calculate_negative_rlml_z">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calculate_negative_rlml_z</span><span class="p">(</span>
+        <span class="n">params_val</span><span class="p">,</span>
+        <span class="n">params_key</span><span class="p">,</span>
+        <span class="n">gprm</span><span class="p">,</span>
+        <span class="n">const_params</span><span class="p">,</span>
+        <span class="n">penalty_params</span><span class="p">,</span>
+        <span class="n">share_len</span><span class="p">,</span>
+        <span class="n">share_sigma</span><span class="p">,</span>
+        <span class="n">share_tau</span><span class="p">,</span>
+        <span class="n">solve_log</span><span class="p">,</span>
+        <span class="n">callback</span><span class="p">,</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        calculate negative restricted log marginal likelihood of z</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        params_val : list</span>
+<span class="sd">            Values of the parameters to optimize.</span>
+<span class="sd">        params_key : list</span>
+<span class="sd">            Keys corresponding to the parameters to optimize.</span>
+<span class="sd">        gprm : GPRegressionJoint</span>
+<span class="sd">            The Gaussian Process Regression Model instance.</span>
+<span class="sd">        const_params : dict</span>
+<span class="sd">            Dictionary of constant parameters.</span>
+<span class="sd">        penalty_params : dict</span>
+<span class="sd">            Dictionary of penalty parameters.</span>
+<span class="sd">        share_len : bool</span>
+<span class="sd">            Whether to share length scale parameters between velocity components.</span>
+<span class="sd">        share_sigma : bool</span>
+<span class="sd">            Whether to share signal variance parameters between velocity components.</span>
+<span class="sd">        share_tau : bool</span>
+<span class="sd">            Whether to share noise variance parameters between velocity components.</span>
+<span class="sd">        solve_log : bool</span>
+<span class="sd">            Whether to solve in the log space.</span>
+<span class="sd">        callback : str</span>
+<span class="sd">            Callback option for printing progress.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        float</span>
+<span class="sd">            The negative restricted log marginal likelihood value.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="n">lml</span> <span class="o">=</span> <span class="n">GPRegressionJoint</span><span class="o">.</span><span class="n">calculate_rlml_z</span><span class="p">(</span>
+            <span class="n">params_val</span><span class="p">,</span>
+            <span class="n">params_key</span><span class="p">,</span>
+            <span class="n">gprm</span><span class="p">,</span>
+            <span class="n">const_params</span><span class="p">,</span>
+            <span class="n">penalty_params</span><span class="p">,</span>
+            <span class="n">share_len</span><span class="p">,</span>
+            <span class="n">share_sigma</span><span class="p">,</span>
+            <span class="n">share_tau</span><span class="p">,</span>
+            <span class="n">solve_log</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">callback</span> <span class="o">!=</span> <span class="s2">&quot;off&quot;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">solve_log</span><span class="p">:</span>
+                <span class="n">pval</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">params_val</span><span class="p">),</span> <span class="n">lml</span><span class="p">)</span>  <span class="c1"># values to print</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">pval</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">params_val</span><span class="p">,</span> <span class="n">lml</span><span class="p">)</span>  <span class="c1"># values to print</span>
+
+            <span class="n">pstring</span> <span class="o">=</span> <span class="s2">&quot;   &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+                <span class="p">[</span><span class="s2">&quot;</span><span class="si">{:&lt;11.5}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">xi</span><span class="p">)</span> <span class="k">for</span> <span class="n">xi</span> <span class="ow">in</span> <span class="n">pval</span><span class="p">]</span>
+            <span class="p">)</span>  <span class="c1"># string to print</span>
+
+            <span class="k">if</span> <span class="n">callback</span> <span class="o">==</span> <span class="s2">&quot;compact&quot;</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="n">pstring</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;</span><span class="se">\r</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">callback</span> <span class="o">==</span> <span class="s2">&quot;on&quot;</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="n">pstring</span><span class="p">)</span>  <span class="c1"># print</span>
+
+        <span class="k">return</span> <span class="o">-</span><span class="n">lml</span></div>
+
+
+<div class="viewcode-block" id="GPRegressionJoint.estimate_params">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.GPRegressionJoint.estimate_params">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">estimate_params</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">initial_params</span><span class="p">,</span>
+        <span class="n">const_params</span><span class="p">,</span>
+        <span class="n">penalty_params</span><span class="o">=</span><span class="p">{},</span>
+        <span class="n">bounds_params</span><span class="o">=</span><span class="p">{},</span>
+        <span class="n">share_len</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="n">share_sigma</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="n">share_tau</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="n">solve_log</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">shgo_bool</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="n">callback</span><span class="o">=</span><span class="s2">&quot;off&quot;</span><span class="p">,</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Estimate the parameters of the Gaussian Process Regression Model.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        initial_params : dict</span>
+<span class="sd">            Initial guess for the parameters.</span>
+<span class="sd">        const_params : dict</span>
+<span class="sd">            Dictionary of constant parameters.</span>
+<span class="sd">        penalty_params : dict, optional</span>
+<span class="sd">            Dictionary of penalty parameters for regularization (default is empty).</span>
+<span class="sd">        bounds_params : dict, optional</span>
+<span class="sd">            Dictionary of bounds for the parameters (default is empty).</span>
+<span class="sd">        share_len : bool, optional</span>
+<span class="sd">            Whether to share length scale parameters between velocity components (default is False).</span>
+<span class="sd">        share_sigma : bool, optional</span>
+<span class="sd">            Whether to share signal variance parameters between velocity components (default is False).</span>
+<span class="sd">        share_tau : bool, optional</span>
+<span class="sd">            Whether to share noise variance parameters between velocity components (default is False).</span>
+<span class="sd">        solve_log : bool, optional</span>
+<span class="sd">            Whether to solve in the log space (default is True).</span>
+<span class="sd">        shgo_bool : bool, optional</span>
+<span class="sd">            Whether to use SHGO optimization (default is False).</span>
+<span class="sd">        callback : str, optional</span>
+<span class="sd">            Callback option for printing progress (default is &quot;off&quot;).</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        dict</span>
+<span class="sd">            The estimated parameters.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="k">if</span> <span class="n">shgo_bool</span> <span class="o">&amp;</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">bounds_params</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">):</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;shgo requires bounds&quot;</span><span class="p">)</span>
+
+        <span class="c1"># optimising rlml</span>
+        <span class="n">params_key</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">initial_params</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">params_key</span><span class="p">,</span>
+            <span class="bp">self</span><span class="p">,</span>
+            <span class="n">const_params</span><span class="p">,</span>
+            <span class="n">penalty_params</span><span class="p">,</span>
+            <span class="n">share_len</span><span class="p">,</span>
+            <span class="n">share_sigma</span><span class="p">,</span>
+            <span class="n">share_tau</span><span class="p">,</span>
+            <span class="n">solve_log</span><span class="p">,</span>
+            <span class="n">callback</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">callback</span> <span class="o">!=</span> <span class="s2">&quot;off&quot;</span><span class="p">:</span>  <span class="c1"># when callback is requested</span>
+            <span class="n">pkey</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">params_key</span><span class="p">,</span> <span class="s2">&quot;lml&quot;</span><span class="p">)</span>  <span class="c1"># header keys</span>
+            <span class="n">pkey_comb</span> <span class="o">=</span> <span class="s2">&quot;   &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+                <span class="p">[</span><span class="s2">&quot;</span><span class="si">{0: &lt;11}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">xi</span><span class="p">)</span> <span class="k">for</span> <span class="n">xi</span> <span class="ow">in</span> <span class="n">pkey</span><span class="p">]</span>
+            <span class="p">)</span>  <span class="c1"># combine keys into single line</span>
+            <span class="nb">print</span><span class="p">(</span><span class="n">pkey_comb</span><span class="p">)</span>  <span class="c1"># create header</span>
+
+        <span class="k">if</span> <span class="n">solve_log</span><span class="p">:</span>
+            <span class="n">initial_params_val</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">initial_params</span><span class="o">.</span><span class="n">values</span><span class="p">())))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">initial_params_val</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">initial_params</span><span class="o">.</span><span class="n">values</span><span class="p">()))</span>
+
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">bounds_params</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">bounds</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">param_name</span> <span class="ow">in</span> <span class="n">params_key</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">param_name</span> <span class="ow">in</span> <span class="n">bounds_params</span><span class="p">:</span>
+                    <span class="n">boundl</span><span class="p">,</span> <span class="n">boundu</span> <span class="o">=</span> <span class="n">bounds_params</span><span class="p">[</span><span class="n">param_name</span><span class="p">]</span>
+                    <span class="k">if</span> <span class="n">boundl</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="n">solve_log</span><span class="p">:</span>
+                            <span class="n">boundl</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">boundl</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">boundu</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="n">solve_log</span><span class="p">:</span>
+                            <span class="n">boundu</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">boundu</span><span class="p">)</span>
+                    <span class="n">bounds</span> <span class="o">+=</span> <span class="p">[[</span><span class="n">boundl</span><span class="p">,</span> <span class="n">boundu</span><span class="p">]]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">bounds</span> <span class="o">+=</span> <span class="p">[[</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]]</span>
+
+            <span class="k">if</span> <span class="n">shgo_bool</span><span class="p">:</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="n">shgo</span><span class="p">(</span>
+                    <span class="n">GPRegressionJoint</span><span class="o">.</span><span class="n">calculate_negative_rlml_z</span><span class="p">,</span> <span class="n">bounds</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="n">args</span><span class="p">,</span> <span class="n">n</span><span class="o">=</span><span class="mf">1e3</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="n">minimize</span><span class="p">(</span>
+                    <span class="n">GPRegressionJoint</span><span class="o">.</span><span class="n">calculate_negative_rlml_z</span><span class="p">,</span>
+                    <span class="n">initial_params_val</span><span class="p">,</span>
+                    <span class="n">args</span><span class="o">=</span><span class="n">args</span><span class="p">,</span>
+                    <span class="n">bounds</span><span class="o">=</span><span class="n">bounds</span><span class="p">,</span>
+                <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="n">minimize</span><span class="p">(</span>
+                <span class="n">GPRegressionJoint</span><span class="o">.</span><span class="n">calculate_negative_rlml_z</span><span class="p">,</span> <span class="n">initial_params_val</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="n">args</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">solve_log</span><span class="p">:</span>
+            <span class="n">params_val</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">x</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">params_val</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">x</span><span class="p">)</span>
+
+        <span class="n">params</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">params_key</span><span class="p">,</span> <span class="n">params_val</span><span class="p">))</span> <span class="o">|</span> <span class="n">const_params</span>
+        <span class="k">if</span> <span class="n">share_len</span><span class="p">:</span>
+            <span class="n">params</span><span class="p">[</span><span class="s2">&quot;l_v&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;l_u&quot;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">share_sigma</span><span class="p">:</span>
+            <span class="n">params</span><span class="p">[</span><span class="s2">&quot;sigma_v&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;sigma_u&quot;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">share_tau</span><span class="p">:</span>
+            <span class="n">params</span><span class="p">[</span><span class="s2">&quot;tau_v&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">params</span><span class="p">[</span><span class="s2">&quot;tau_u&quot;</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">params</span></div>
+
+
+<div class="viewcode-block" id="GPRegressionJoint.format_output">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.GPRegressionJoint.format_output">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">format_output</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">mux</span><span class="p">,</span> <span class="n">Kx</span><span class="p">):</span>
+        <span class="c1"># format output</span>
+
+        <span class="c1"># standard deviation</span>
+        <span class="n">stdx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">Kx</span><span class="p">))</span>
+
+        <span class="c1"># outputs</span>
+        <span class="n">muu_flat</span> <span class="o">=</span> <span class="n">mux</span><span class="p">[:</span> <span class="bp">self</span><span class="o">.</span><span class="n">n</span><span class="p">]</span>
+        <span class="n">muv_flat</span> <span class="o">=</span> <span class="n">mux</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">n</span> <span class="p">:</span> <span class="mi">2</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">n</span><span class="p">]</span>
+        <span class="n">muS_flat</span> <span class="o">=</span> <span class="n">mux</span><span class="p">[</span><span class="mi">2</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">n</span> <span class="p">:</span> <span class="mi">3</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">n</span><span class="p">]</span>
+        <span class="n">stdu_flat</span> <span class="o">=</span> <span class="n">stdx</span><span class="p">[:</span> <span class="bp">self</span><span class="o">.</span><span class="n">n</span><span class="p">]</span>
+        <span class="n">stdv_flat</span> <span class="o">=</span> <span class="n">stdx</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">n</span> <span class="p">:</span> <span class="mi">2</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">n</span><span class="p">]</span>
+        <span class="n">stdS_flat</span> <span class="o">=</span> <span class="n">stdx</span><span class="p">[</span><span class="mi">2</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">n</span> <span class="p">:</span> <span class="mi">3</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">n</span><span class="p">]</span>
+
+        <span class="c1"># covariance velocity</span>
+        <span class="n">Kx_uu</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">Kx</span><span class="p">[:</span> <span class="bp">self</span><span class="o">.</span><span class="n">n</span><span class="p">,</span> <span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">n</span><span class="p">])</span>
+        <span class="n">Kx_uv</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">Kx</span><span class="p">[:</span> <span class="bp">self</span><span class="o">.</span><span class="n">n</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n</span> <span class="p">:</span> <span class="mi">2</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">n</span><span class="p">])</span>
+        <span class="n">Kx_vv</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">Kx</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">n</span> <span class="p">:</span> <span class="mi">2</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">n</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n</span> <span class="p">:</span> <span class="mi">2</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">n</span><span class="p">])</span>
+        <span class="n">Kx_vel_flat</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">([[</span><span class="n">Kx_uu</span><span class="p">,</span> <span class="n">Kx_uv</span><span class="p">],</span> <span class="p">[</span><span class="n">Kx_uv</span><span class="p">,</span> <span class="n">Kx_vv</span><span class="p">]])</span>  <span class="c1"># stack components</span>
+        <span class="n">Kx_vel_flat</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">swapaxes</span><span class="p">(</span><span class="n">Kx_vel_flat</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>  <span class="c1"># switch axes order</span>
+
+        <span class="c1"># convert to 2d</span>
+        <span class="n">muu</span> <span class="o">=</span> <span class="n">map_val</span><span class="p">(</span><span class="n">muu_flat</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">maskp</span><span class="p">)</span>
+        <span class="n">muv</span> <span class="o">=</span> <span class="n">map_val</span><span class="p">(</span><span class="n">muv_flat</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">maskp</span><span class="p">)</span>
+        <span class="n">muS</span> <span class="o">=</span> <span class="n">map_val</span><span class="p">(</span><span class="n">muS_flat</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">maskp</span><span class="p">)</span>
+        <span class="n">stdu</span> <span class="o">=</span> <span class="n">map_val</span><span class="p">(</span><span class="n">stdu_flat</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">maskp</span><span class="p">)</span>
+        <span class="n">stdv</span> <span class="o">=</span> <span class="n">map_val</span><span class="p">(</span><span class="n">stdv_flat</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">maskp</span><span class="p">)</span>
+        <span class="n">stdS</span> <span class="o">=</span> <span class="n">map_val</span><span class="p">(</span><span class="n">stdS_flat</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">maskp</span><span class="p">)</span>
+        <span class="n">Kx_vel</span> <span class="o">=</span> <span class="n">map_val</span><span class="p">(</span><span class="n">Kx_vel_flat</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">maskp</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">muu</span><span class="p">,</span> <span class="n">muv</span><span class="p">,</span> <span class="n">muS</span><span class="p">,</span> <span class="n">stdu</span><span class="p">,</span> <span class="n">stdv</span><span class="p">,</span> <span class="n">stdS</span><span class="p">,</span> <span class="n">Kx_vel</span></div>
+
+
+<div class="viewcode-block" id="GPRegressionJoint.predict">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.GPRegressionJoint.predict">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">predict</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">return_prior</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">return_Kxstar</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+        <span class="c1"># predict using GPRegressionJoint</span>
+
+        <span class="n">Kx</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">construct_Kx</span><span class="p">(</span><span class="n">params</span><span class="p">)</span>  <span class="c1"># construct Kx</span>
+        <span class="n">Kz</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">construct_Kz</span><span class="p">(</span><span class="n">params</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">HA</span><span class="p">,</span> <span class="n">Kx</span><span class="p">)</span>  <span class="c1"># construct Kz</span>
+        <span class="n">Lz</span> <span class="o">=</span> <span class="n">chol</span><span class="p">(</span><span class="n">Kz</span><span class="p">)</span>
+        <span class="n">Qz</span> <span class="o">=</span> <span class="n">chol2inv</span><span class="p">(</span><span class="n">Lz</span><span class="p">)</span>
+
+        <span class="c1"># universal kriging</span>
+        <span class="n">betacov</span> <span class="o">=</span> <span class="n">cholinv</span><span class="p">(</span><span class="n">mdot</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">phix</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">HA</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">Qz</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">HA</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">phix</span><span class="p">]))</span>
+
+        <span class="c1"># prediction covariance</span>
+        <span class="n">kappa_term</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">phix</span><span class="o">.</span><span class="n">T</span> <span class="o">-</span> <span class="n">mdot</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">phix</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">HA</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">Qz</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">HA</span><span class="p">,</span> <span class="n">Kx</span><span class="p">])</span>
+        <span class="n">kappa</span> <span class="o">=</span> <span class="n">mdot</span><span class="p">([</span><span class="n">kappa_term</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">betacov</span><span class="p">,</span> <span class="n">kappa_term</span><span class="p">])</span>
+        <span class="n">Kxstar</span> <span class="o">=</span> <span class="n">Kx</span> <span class="o">-</span> <span class="n">mdot</span><span class="p">([</span><span class="n">Kx</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">HA</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">Qz</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">HA</span><span class="p">,</span> <span class="n">Kx</span><span class="p">])</span> <span class="o">+</span> <span class="n">kappa</span>
+
+        <span class="c1"># prediction mean</span>
+        <span class="n">beta</span> <span class="o">=</span> <span class="n">mdot</span><span class="p">([</span><span class="n">betacov</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">phix</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">HA</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">Qz</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">z</span><span class="p">])</span>
+        <span class="n">mux</span> <span class="o">=</span> <span class="n">mdot</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">phix</span><span class="p">,</span> <span class="n">beta</span><span class="p">])</span>
+        <span class="n">muxstar</span> <span class="o">=</span> <span class="n">mux</span> <span class="o">-</span> <span class="n">mdot</span><span class="p">([</span><span class="n">Kx</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">HA</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">Qz</span><span class="p">,</span> <span class="n">mdot</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">HA</span><span class="p">,</span> <span class="n">mux</span><span class="p">])</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">z</span><span class="p">])</span>
+
+        <span class="c1"># format output</span>
+        <span class="n">muustar</span><span class="p">,</span> <span class="n">muvstar</span><span class="p">,</span> <span class="n">muSstar</span><span class="p">,</span> <span class="n">stdustar</span><span class="p">,</span> <span class="n">stdvstar</span><span class="p">,</span> <span class="n">stdSstar</span><span class="p">,</span> <span class="n">Kxstar_vel</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">format_output</span><span class="p">(</span><span class="n">muxstar</span><span class="p">,</span> <span class="n">Kxstar</span><span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="n">output</span> <span class="o">=</span> <span class="p">[</span><span class="n">muustar</span><span class="p">,</span> <span class="n">muvstar</span><span class="p">,</span> <span class="n">muSstar</span><span class="p">,</span> <span class="n">stdustar</span><span class="p">,</span> <span class="n">stdvstar</span><span class="p">,</span> <span class="n">stdSstar</span><span class="p">,</span> <span class="n">Kxstar_vel</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">return_prior</span><span class="p">:</span>  <span class="c1"># return prior and posterior</span>
+            <span class="n">muu</span><span class="p">,</span> <span class="n">muv</span><span class="p">,</span> <span class="n">muS</span><span class="p">,</span> <span class="n">stdu</span><span class="p">,</span> <span class="n">stdv</span><span class="p">,</span> <span class="n">stdS</span><span class="p">,</span> <span class="n">Kx_vel</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">format_output</span><span class="p">(</span><span class="n">mux</span><span class="p">,</span> <span class="n">Kx</span><span class="p">)</span>
+            <span class="n">output</span> <span class="o">+=</span> <span class="p">[</span><span class="n">muu</span><span class="p">,</span> <span class="n">muv</span><span class="p">,</span> <span class="n">muS</span><span class="p">,</span> <span class="n">stdu</span><span class="p">,</span> <span class="n">stdv</span><span class="p">,</span> <span class="n">stdS</span><span class="p">,</span> <span class="n">Kx_vel</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">return_Kxstar</span><span class="p">:</span>
+            <span class="n">output</span> <span class="o">+=</span> <span class="p">[</span><span class="n">Kxstar</span><span class="p">]</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">output</span><span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="calculate_prediction_gpregression">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.calculate_prediction_gpregression">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">calculate_prediction_gpregression</span><span class="p">(</span>
+    <span class="n">dTds1</span><span class="p">,</span> <span class="n">dTds2</span><span class="p">,</span> <span class="n">dTdt</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">Y</span><span class="p">,</span> <span class="n">tstep</span><span class="p">,</span> <span class="n">maskp</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">degreeu</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">degreev</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">degreeS</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">return_Kxstar</span><span class="o">=</span><span class="kc">False</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    TODO: Describe purpose.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    dTds1 :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    dTds2 :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    dTdt :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    params :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    X :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    Y :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    tstep :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    maskp :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    degreeu :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    degreev :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    degreeS :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    return_Kxstar :</span>
+<span class="sd">        TODO</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    TODO</span>
+
+<span class="sd">    Questions</span>
+<span class="sd">    ---------</span>
+<span class="sd">    - Are assumptions correct?</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">maskp</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+
+
+        <span class="n">maskp</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones_like</span><span class="p">(</span><span class="n">dTds1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+        
+    <span class="c1"># GP regression</span>
+    <span class="n">gprm</span> <span class="o">=</span> <span class="n">GPRegressionJoint</span><span class="p">(</span>
+        <span class="n">dTds1</span><span class="p">,</span>
+        <span class="n">dTds2</span><span class="p">,</span>
+        <span class="n">dTdt</span><span class="p">,</span>
+        <span class="n">tstep</span><span class="p">,</span>
+        <span class="n">X</span><span class="p">,</span> 
+        <span class="n">Y</span><span class="p">,</span>
+        <span class="n">maskp</span><span class="p">,</span>
+        <span class="n">degreeu</span><span class="o">=</span><span class="n">degreeu</span><span class="p">,</span>
+        <span class="n">degreev</span><span class="o">=</span><span class="n">degreev</span><span class="p">,</span>
+        <span class="n">degreeS</span><span class="o">=</span><span class="n">degreeS</span><span class="p">,</span>
+    <span class="p">)</span>
+    
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">return_Kxstar</span><span class="p">:</span>
+        <span class="n">muustar</span><span class="p">,</span> <span class="n">muvstar</span><span class="p">,</span> <span class="n">muSstar</span><span class="p">,</span> <span class="n">stdustar</span><span class="p">,</span> <span class="n">stdvstar</span><span class="p">,</span> <span class="n">stdSstar</span><span class="p">,</span> <span class="n">Kxstar_vel</span> <span class="o">=</span> <span class="n">gprm</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span>
+            <span class="n">params</span><span class="p">,</span> <span class="n">return_prior</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">return_Kxstar</span><span class="o">=</span><span class="kc">False</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">muustar</span><span class="p">,</span> <span class="n">muvstar</span><span class="p">,</span> <span class="n">muSstar</span><span class="p">,</span> <span class="n">stdustar</span><span class="p">,</span> <span class="n">stdvstar</span><span class="p">,</span> <span class="n">stdSstar</span><span class="p">,</span> <span class="n">Kxstar_vel</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">muustar</span><span class="p">,</span> <span class="n">muvstar</span><span class="p">,</span> <span class="n">muSstar</span><span class="p">,</span> <span class="n">stdustar</span><span class="p">,</span> <span class="n">stdvstar</span><span class="p">,</span> <span class="n">stdSstar</span><span class="p">,</span> <span class="n">Kxstar_vel</span><span class="p">,</span> <span class="n">Kxstar</span> <span class="o">=</span> <span class="n">gprm</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span>
+            <span class="n">params</span><span class="p">,</span> <span class="n">return_prior</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">return_Kxstar</span><span class="o">=</span><span class="kc">True</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">muustar</span><span class="p">,</span> <span class="n">muvstar</span><span class="p">,</span> <span class="n">muSstar</span><span class="p">,</span> <span class="n">stdustar</span><span class="p">,</span> <span class="n">stdvstar</span><span class="p">,</span> <span class="n">stdSstar</span><span class="p">,</span> <span class="n">Kxstar_vel</span><span class="p">,</span> <span class="n">Kxstar</span></div>
+
+
+<div class="viewcode-block" id="GPRegressionProcess">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.GPRegressionProcess">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">GPRegressionProcess</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="c1"># fit covariance parameters</span>
+
+<div class="viewcode-block" id="GPRegressionProcess.__init__">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.GPRegressionProcess.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">alpha</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">Y</span><span class="p">,</span> <span class="n">degree</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        TODO: Describe class purpose and assumptions.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">alpha</span> <span class="o">=</span> <span class="n">alpha</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">s</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">X</span><span class="p">,</span> <span class="n">Y</span><span class="p">],</span><span class="mi">2</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">degree</span> <span class="o">=</span> <span class="n">degree</span>
+
+        <span class="c1"># mask</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">masko</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">logical_not</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">alpha</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">alphao</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">alpha</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">masko</span><span class="p">]</span>
+
+        <span class="c1"># grid</span>
+        <span class="n">so</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">s</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">masko</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">d</span> <span class="o">=</span> <span class="n">distance_matrix</span><span class="p">(</span><span class="n">so</span><span class="p">,</span><span class="n">so</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">match_mask</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">d</span><span class="o">==</span><span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">phi</span> <span class="o">=</span> <span class="n">phi</span><span class="p">(</span><span class="n">so</span><span class="p">[:,</span><span class="mi">0</span><span class="p">],</span> <span class="n">so</span><span class="p">[:,</span><span class="mi">1</span><span class="p">],</span> <span class="n">degree</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="GPRegressionProcess.estimate_beta">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.GPRegressionProcess.estimate_beta">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">estimate_beta</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sigma</span><span class="p">,</span> <span class="n">ls</span><span class="p">,</span> <span class="n">tau</span><span class="p">):</span>
+        <span class="c1"># covariance matrix</span>
+        <span class="n">K</span> <span class="o">=</span> <span class="n">kernel_matern_3_2_var</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">d</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">match_mask</span><span class="p">,</span> <span class="n">sigma</span><span class="p">,</span> <span class="n">ls</span><span class="p">,</span> <span class="n">tau</span><span class="p">)</span>
+        <span class="n">L</span> <span class="o">=</span> <span class="n">chol</span><span class="p">(</span><span class="n">K</span><span class="p">)</span>
+        <span class="n">Q</span> <span class="o">=</span> <span class="n">chol2inv</span><span class="p">(</span><span class="n">L</span><span class="p">)</span>
+
+        <span class="c1"># universal kriging</span>
+        <span class="k">return</span> <span class="n">mdot</span><span class="p">([</span><span class="n">cholinv</span><span class="p">(</span><span class="n">mdot</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">phi</span><span class="o">.</span><span class="n">T</span><span class="p">,</span><span class="n">Q</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">phi</span><span class="p">])),</span><span class="bp">self</span><span class="o">.</span><span class="n">phi</span><span class="o">.</span><span class="n">T</span><span class="p">,</span><span class="n">Q</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">alphao</span><span class="p">])</span></div>
+
+
+<div class="viewcode-block" id="GPRegressionProcess.calculate_rlml_alpha">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.GPRegressionProcess.calculate_rlml_alpha">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calculate_rlml_alpha</span><span class="p">(</span><span class="n">theta</span><span class="p">,</span> <span class="n">alpha</span><span class="p">,</span> <span class="n">phi</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">match_mask</span><span class="p">,</span> <span class="n">solve_log</span><span class="p">):</span>
+        <span class="c1"># calculate restricted log marginal likelihood of alpha</span>
+
+        <span class="k">if</span> <span class="n">solve_log</span><span class="p">:</span>
+            <span class="n">sigma</span><span class="p">,</span> <span class="n">ls</span><span class="p">,</span> <span class="n">tau</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">theta</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">sigma</span><span class="p">,</span> <span class="n">ls</span><span class="p">,</span> <span class="n">tau</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">theta</span><span class="p">)</span>
+
+        <span class="c1"># covariance matrix</span>
+        <span class="n">K</span> <span class="o">=</span> <span class="n">kernel_matern_3_2_var</span><span class="p">(</span><span class="n">d</span><span class="p">,</span> <span class="n">match_mask</span><span class="p">,</span> <span class="n">sigma</span><span class="p">,</span> <span class="n">ls</span><span class="p">,</span> <span class="n">tau</span><span class="p">)</span>
+        <span class="n">L</span> <span class="o">=</span> <span class="n">chol</span><span class="p">(</span><span class="n">K</span><span class="p">)</span>
+        <span class="n">Q</span> <span class="o">=</span> <span class="n">chol2inv</span><span class="p">(</span><span class="n">L</span><span class="p">)</span>
+
+        <span class="c1"># universal kriging</span>
+        <span class="n">beta</span> <span class="o">=</span> <span class="n">mdot</span><span class="p">([</span><span class="n">cholinv</span><span class="p">(</span><span class="n">mdot</span><span class="p">([</span><span class="n">phi</span><span class="o">.</span><span class="n">T</span><span class="p">,</span><span class="n">Q</span><span class="p">,</span><span class="n">phi</span><span class="p">])),</span><span class="n">phi</span><span class="o">.</span><span class="n">T</span><span class="p">,</span><span class="n">Q</span><span class="p">,</span><span class="n">alpha</span><span class="p">])</span>
+        <span class="n">mu</span> <span class="o">=</span> <span class="n">mdot</span><span class="p">([</span><span class="n">phi</span><span class="p">,</span><span class="n">beta</span><span class="p">])</span>
+
+        <span class="c1"># compute rlml (withouth constant)</span>
+        <span class="k">return</span> <span class="o">-</span><span class="mi">1</span><span class="o">/</span><span class="mi">2</span><span class="o">*</span><span class="n">mdot</span><span class="p">([(</span><span class="n">alpha</span><span class="o">-</span><span class="n">mu</span><span class="p">)</span><span class="o">.</span><span class="n">T</span><span class="p">,</span><span class="n">Q</span><span class="p">,</span><span class="n">alpha</span><span class="o">-</span><span class="n">mu</span><span class="p">])</span>\
+            <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">L</span><span class="p">)))</span>\
+            <span class="o">-</span><span class="mi">1</span><span class="o">/</span><span class="mi">2</span><span class="o">*</span><span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">det</span><span class="p">(</span><span class="n">mdot</span><span class="p">([</span><span class="n">phi</span><span class="o">.</span><span class="n">T</span><span class="p">,</span><span class="n">Q</span><span class="p">,</span><span class="n">phi</span><span class="p">])))</span></div>
+
+
+<div class="viewcode-block" id="GPRegressionProcess.calculate_negative_rlml_alpha">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.GPRegressionProcess.calculate_negative_rlml_alpha">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">calculate_negative_rlml_alpha</span><span class="p">(</span><span class="n">theta</span><span class="p">,</span> <span class="n">alpha</span><span class="p">,</span> <span class="n">phi</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">match_mask</span><span class="p">,</span> <span class="n">solve_log</span><span class="p">):</span>
+        <span class="c1"># calculate restricted log marginal likelihood of alpha</span>
+        <span class="k">return</span> <span class="o">-</span><span class="n">GPRegressionProcess</span><span class="o">.</span><span class="n">calculate_rlml_alpha</span><span class="p">(</span><span class="n">theta</span><span class="p">,</span> <span class="n">alpha</span><span class="p">,</span> <span class="n">phi</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">match_mask</span><span class="p">,</span> <span class="n">solve_log</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="GPRegressionProcess.estimate_theta">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.GPRegressionProcess.estimate_theta">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">estimate_theta</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">initial_sigma</span><span class="p">,</span> <span class="n">initial_ls</span><span class="p">,</span> <span class="n">initial_tau</span><span class="p">,</span> <span class="n">solve_log</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span> 
+        <span class="c1"># optimising rlml alpha</span>
+        <span class="n">initial_theta</span> <span class="o">=</span> <span class="p">[</span><span class="n">initial_sigma</span><span class="p">,</span> <span class="n">initial_ls</span><span class="p">,</span> <span class="n">initial_tau</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="n">solve_log</span><span class="p">:</span>
+            <span class="n">initial_theta_log</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">initial_theta</span><span class="p">)</span>
+            <span class="n">args</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">alphao</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">phi</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">d</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">match_mask</span><span class="p">,</span> <span class="n">solve_log</span><span class="p">)</span>
+            <span class="n">result_log</span> <span class="o">=</span> <span class="n">minimize</span><span class="p">(</span><span class="n">GPRegressionProcess</span><span class="o">.</span><span class="n">calculate_negative_rlml_alpha</span><span class="p">,</span> <span class="n">initial_theta_log</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="n">args</span><span class="p">)</span>
+            <span class="n">sigma</span><span class="p">,</span> <span class="n">ls</span><span class="p">,</span> <span class="n">tau</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">result_log</span><span class="o">.</span><span class="n">x</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">args</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">alphao</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">phi</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">d</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">match_mask</span><span class="p">,</span> <span class="n">solve_log</span><span class="p">)</span>
+            <span class="n">bounds</span> <span class="o">=</span> <span class="p">[(</span><span class="mi">0</span><span class="p">,</span><span class="kc">None</span><span class="p">)]</span><span class="o">*</span><span class="mi">3</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="n">minimize</span><span class="p">(</span><span class="n">GPRegressionProcess</span><span class="o">.</span><span class="n">calculate_negative_rlml_alpha</span><span class="p">,</span> <span class="n">initial_theta</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="n">args</span><span class="p">,</span> <span class="n">bounds</span><span class="o">=</span><span class="n">bounds</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s1">&#39;Nelder-Mead&#39;</span><span class="p">)</span>
+            <span class="n">sigma</span><span class="p">,</span> <span class="n">ls</span><span class="p">,</span> <span class="n">tau</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">x</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">sigma</span><span class="p">,</span> <span class="n">ls</span><span class="p">,</span> <span class="n">tau</span></div>
+</div>
+
+    
+<div class="viewcode-block" id="estimate_params_process">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.estimate_params_process">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">estimate_params_process</span><span class="p">(</span><span class="n">process</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">Y</span> <span class="p">,</span> <span class="n">initial_sigma</span><span class="p">,</span> <span class="n">initial_ls</span><span class="p">,</span> <span class="n">initial_tau</span><span class="p">,</span> <span class="n">degree</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span> <span class="n">solve_log</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    TODO: Describe purpose.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    process :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    X :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    Y :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    initial_sigma :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    initial_ls :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    initial_tau :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    degree :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    solve_log :</span>
+<span class="sd">        TODO</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    TODO</span>
+
+<span class="sd">    Questions</span>
+<span class="sd">    ---------</span>
+<span class="sd">    - Are assumptions correct?</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># estimate parameters for process</span>
+    <span class="n">gprm</span> <span class="o">=</span> <span class="n">GPRegressionProcess</span><span class="p">(</span><span class="n">process</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">Y</span><span class="p">,</span><span class="n">degree</span><span class="o">=</span><span class="n">degree</span><span class="p">)</span>
+
+
+    <span class="n">sigma</span><span class="p">,</span> <span class="n">ls</span><span class="p">,</span> <span class="n">tau</span> <span class="o">=</span> <span class="n">gprm</span><span class="o">.</span><span class="n">estimate_theta</span><span class="p">(</span><span class="n">initial_sigma</span><span class="p">,</span> <span class="n">initial_ls</span><span class="p">,</span> <span class="n">initial_tau</span><span class="p">,</span> <span class="n">solve_log</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">sigma</span><span class="p">,</span> <span class="n">ls</span><span class="p">,</span> <span class="n">tau</span></div>
+
+
+<div class="viewcode-block" id="chol">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.chol">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">chol</span><span class="p">(</span><span class="n">M</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    TODO: Describe purpose.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    M :</span>
+<span class="sd">        TODO</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    TODO</span>
+
+<span class="sd">    Questions</span>
+<span class="sd">    ---------</span>
+<span class="sd">    - Are assumptions correct?</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="c1"># Cholesky decomposition</span>
+    <span class="k">return</span> <span class="n">dpotrf</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span></div>
+
+
+
+
+
+<div class="viewcode-block" id="chol2inv">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.chol2inv">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">chol2inv</span><span class="p">(</span><span class="n">L</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    TODO: Describe purpose.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    L :</span>
+<span class="sd">        TODO</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    TODO</span>
+
+<span class="sd">    Questions</span>
+<span class="sd">    ---------</span>
+<span class="sd">    - Are assumptions correct?</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="c1"># Calculate inversion using Cholesky decomposition</span>
+    <span class="n">inv</span> <span class="o">=</span> <span class="n">dpotri</span><span class="p">(</span><span class="n">L</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+
+
+    <span class="n">inv</span> <span class="o">+=</span> <span class="n">np</span><span class="o">.</span><span class="n">tril</span><span class="p">(</span><span class="n">inv</span><span class="p">,</span> <span class="n">k</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">T</span>
+    <span class="k">return</span> <span class="n">inv</span></div>
+
+
+
+<div class="viewcode-block" id="cholinv">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.cholinv">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">cholinv</span><span class="p">(</span><span class="n">M</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    TODO: Describe purpose.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    M :</span>
+<span class="sd">        TODO</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    TODO</span>
+
+<span class="sd">    Questions</span>
+<span class="sd">    ---------</span>
+<span class="sd">    - Are assumptions correct?</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="c1"># Directly calculate inversion through Cholesky decomposition</span>
+    <span class="n">L</span> <span class="o">=</span> <span class="n">chol</span><span class="p">(</span><span class="n">M</span><span class="p">)</span>
+
+
+    <span class="k">return</span> <span class="n">chol2inv</span><span class="p">(</span><span class="n">L</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="kernel_matern_3_2_var">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.kernel_matern_3_2_var">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">kernel_matern_3_2_var</span><span class="p">(</span><span class="n">d</span><span class="p">,</span> <span class="n">match_mask</span><span class="p">,</span> <span class="n">sigma</span><span class="p">,</span> <span class="n">ls</span><span class="p">,</span> <span class="n">tau</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    TODO: Describe purpose.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    d :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    match_mask :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    sigma :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    ls :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    tau :</span>
+<span class="sd">        TODO</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    TODO</span>
+
+<span class="sd">    Questions</span>
+<span class="sd">    ---------</span>
+<span class="sd">    - Are assumptions correct?</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="c1"># Matern covariance function nu = 3/2 (p=1) including the additional variance τ**2</span>
+    <span class="n">matern</span> <span class="o">=</span> <span class="n">sigma</span><span class="o">**</span><span class="mi">2</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span> <span class="o">*</span> <span class="n">d</span> <span class="o">/</span> <span class="n">ls</span><span class="p">)</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span> <span class="o">*</span> <span class="n">d</span> <span class="o">/</span> <span class="n">ls</span><span class="p">)</span>
+
+    <span class="n">var</span> <span class="o">=</span> <span class="n">tau</span><span class="o">**</span><span class="mi">2</span> <span class="o">*</span> <span class="n">match_mask</span>
+    <span class="k">return</span> <span class="n">matern</span> <span class="o">+</span> <span class="n">var</span></div>
+
+
+
+<div class="viewcode-block" id="penalty_gauss_centre">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.penalty_gauss_centre">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">penalty_gauss_centre</span><span class="p">(</span><span class="n">theta</span><span class="p">,</span> <span class="n">mu</span><span class="p">,</span> <span class="n">sigma</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    TODO: Describe purpose.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    theta :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    mu :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    sigma :</span>
+<span class="sd">        TODO</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    TODO</span>
+
+<span class="sd">    Questions</span>
+<span class="sd">    ---------</span>
+<span class="sd">    - Are assumptions correct?</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<span class="c1"># for each parameter theta, add to the objective you want to maximise</span>
+    <span class="k">return</span> <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">sigma</span><span class="p">)</span> <span class="o">-</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="p">(</span><span class="n">theta</span> <span class="o">-</span> <span class="n">mu</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">/</span> <span class="n">sigma</span><span class="o">**</span><span class="mi">2</span></div>
+
+
+
+
+
+<div class="viewcode-block" id="linear_mean">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.linear_mean">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">linear_mean</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">M</span><span class="p">,</span> <span class="n">R1</span><span class="p">,</span> <span class="n">R2</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    TODO: Describe purpose.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    s :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    M :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    R1 :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    R2 :</span>
+<span class="sd">        TODO</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    TODO</span>
+
+<span class="sd">    Questions</span>
+<span class="sd">    ---------</span>
+<span class="sd">    - Are assumptions correct?</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="c1"># linear mean</span>
+    <span class="n">s1</span> <span class="o">=</span> <span class="n">s</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span>
+
+
+    <span class="n">s2</span> <span class="o">=</span> <span class="n">s</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">M</span> <span class="o">+</span> <span class="n">R1</span> <span class="o">*</span> <span class="n">s1</span> <span class="o">+</span> <span class="n">R2</span> <span class="o">*</span> <span class="n">s2</span></div>
+
+
+
+<div class="viewcode-block" id="phi">
+<a class="viewcode-back" href="../../api.html#inversion_sst_gp.gp_regression.phi">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">phi</span><span class="p">(</span><span class="n">s1</span><span class="p">,</span> <span class="n">s2</span><span class="p">,</span> <span class="n">degree</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    TODO: Describe purpose.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    s1 :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    s2 :</span>
+<span class="sd">        TODO</span>
+<span class="sd">    degree :</span>
+<span class="sd">        TODO</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    TODO</span>
+
+<span class="sd">    Questions</span>
+<span class="sd">    ---------</span>
+<span class="sd">    - Are assumptions correct?</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    
+    <span class="c1"># compute phi</span>
+    <span class="n">N</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">s1</span><span class="p">)</span>
+
+
+    <span class="n">constant</span> <span class="o">=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">N</span><span class="p">)]</span>
+    <span class="n">component1</span> <span class="o">=</span> <span class="p">[(</span><span class="n">s1</span><span class="o">**</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">degree</span><span class="p">)]</span>
+    <span class="n">component2</span> <span class="o">=</span> <span class="p">[(</span><span class="n">s2</span><span class="o">**</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">degree</span><span class="p">)]</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">(</span><span class="n">constant</span> <span class="o">+</span> <span class="n">component1</span> <span class="o">+</span> <span class="n">component2</span><span class="p">)</span><span class="o">.</span><span class="n">T</span></div>
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">SST currents</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../api.html">API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api.html#simulation">Simulation</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Rick de Kreij.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.0.4</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

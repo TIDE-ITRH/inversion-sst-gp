@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>inversion_sst_gp.simulation.simulate_obs &#8212; SST currents 2025 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/alabaster.css?v=27fed22d" />
+    <script src="../../../_static/documentation_options.js?v=cb975c41"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+   
+  <link rel="stylesheet" href="../../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for inversion_sst_gp.simulation.simulate_obs</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Simulation and modification of observational data.</span>
+
+<span class="sd">This module provides functionality to simulate tracer observations from model data</span>
+<span class="sd">and modify the data with various noise and coverage patterns.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">copy</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">inversion_sst_gp.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">finite_difference_2d</span>
+
+<div class="viewcode-block" id="ModifyData">
+<a class="viewcode-back" href="../../../api.html#inversion_sst_gp.simulation.simulate_obs.ModifyData">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ModifyData</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A class to modify tracer data (T and dTdt) with noise and coverage patterns.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        T (ndarray): Tracer data.</span>
+<span class="sd">        dTdt (ndarray): Time derivative of tracer data.</span>
+<span class="sd">        tstep (float): Time step size.</span>
+<span class="sd">        s (ndarray): Spatial coordinates (X, Y).</span>
+<span class="sd">        N2 (int): Number of rows in the data.</span>
+<span class="sd">        N1 (int): Number of columns in the data.</span>
+<span class="sd">        masko (ndarray): Mask indicating valid data points.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ModifyData.__init__">
+<a class="viewcode-back" href="../../../api.html#inversion_sst_gp.simulation.simulate_obs.ModifyData.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="n">dTdt</span><span class="p">,</span> <span class="n">tstep</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">Y</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initialize the ModifyData object.</span>
+
+<span class="sd">        Parameters:</span>
+<span class="sd">            T (ndarray): Tracer data.</span>
+<span class="sd">            dTdt (ndarray): Time derivative of tracer data.</span>
+<span class="sd">            tstep (float): Time step size.</span>
+<span class="sd">            X (ndarray): X-coordinates of the grid.</span>
+<span class="sd">            Y (ndarray): Y-coordinates of the grid.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">T</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">T</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dTdt</span> <span class="o">=</span> <span class="n">copy</span><span class="o">.</span><span class="n">deepcopy</span><span class="p">(</span><span class="n">dTdt</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tstep</span> <span class="o">=</span> <span class="n">tstep</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">s</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">X</span><span class="p">,</span> <span class="n">Y</span><span class="p">],</span><span class="mi">2</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">N2</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">N1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">shape</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+
+        <span class="c1"># only keep points if they have both a T and dTdt value </span>
+        <span class="n">masko_inv</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">T</span><span class="p">)</span> <span class="o">|</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dTdt</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">masko</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">logical_not</span><span class="p">(</span><span class="n">masko_inv</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">T</span><span class="p">[</span><span class="n">masko_inv</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dTdt</span><span class="p">[</span><span class="n">masko_inv</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span></div>
+
+
+<div class="viewcode-block" id="ModifyData.noise">
+<a class="viewcode-back" href="../../../api.html#inversion_sst_gp.simulation.simulate_obs.ModifyData.noise">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">noise</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sigma_tau</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Add Gaussian noise to the tracer data.</span>
+
+<span class="sd">        Parameters:</span>
+<span class="sd">            sigma_tau (float): Standard deviation of the noise.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            ModifyData: The modified data object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># add noise</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">T</span> <span class="o">+=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="n">sigma_tau</span><span class="p">,</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">N2</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">N1</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dTdt</span> <span class="o">+=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mf">.5</span><span class="p">)</span><span class="o">/</span><span class="bp">self</span><span class="o">.</span><span class="n">tstep</span><span class="o">*</span><span class="n">sigma_tau</span><span class="p">,</span><span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">N2</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">N1</span><span class="p">))</span>
+        <span class="k">return</span> <span class="bp">self</span></div>
+
+        
+<div class="viewcode-block" id="ModifyData.sparse_cloud">
+<a class="viewcode-back" href="../../../api.html#inversion_sst_gp.simulation.simulate_obs.ModifyData.sparse_cloud">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">sparse_cloud</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">coverage</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Generate a sparse cloud coverage pattern.</span>
+
+<span class="sd">        Parameters:</span>
+<span class="sd">            coverage (float): Fraction of points to be covered.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            ModifyData: The modified data object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># generate sparse cloud</span>
+        <span class="n">rand_num</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">N2</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">N1</span><span class="p">)</span>
+        <span class="n">maskc</span> <span class="o">=</span> <span class="n">rand_num</span> <span class="o">&lt;=</span> <span class="n">coverage</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">T</span><span class="p">[</span><span class="n">maskc</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dTdt</span><span class="p">[</span><span class="n">maskc</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+        <span class="k">return</span> <span class="bp">self</span></div>
+
+
+<div class="viewcode-block" id="ModifyData.circ_cloud">
+<a class="viewcode-back" href="../../../api.html#inversion_sst_gp.simulation.simulate_obs.ModifyData.circ_cloud">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">circ_cloud</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">coverage</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Generate a circular cloud coverage pattern at the center.</span>
+
+<span class="sd">        Parameters:</span>
+<span class="sd">            coverage (float): Fraction of points to be covered.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            ModifyData: The modified data object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># generate circular cloud at centeer</span>
+        <span class="n">N</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">N1</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">N2</span> <span class="c1"># total number of points</span>
+        <span class="n">Nc</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">N</span><span class="o">*</span><span class="n">coverage</span><span class="p">)</span> <span class="c1"># covered pixels</span>
+        <span class="n">g2</span><span class="p">,</span> <span class="n">g1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ogrid</span><span class="p">[:</span><span class="bp">self</span><span class="o">.</span><span class="n">N2</span><span class="p">,</span> <span class="p">:</span><span class="bp">self</span><span class="o">.</span><span class="n">N1</span><span class="p">]</span> <span class="c1"># create grid</span>
+        <span class="n">center1</span><span class="p">,</span> <span class="n">center2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">N1</span><span class="o">//</span><span class="mi">2</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">N2</span><span class="o">//</span><span class="mi">2</span> <span class="c1"># centre points</span>
+        <span class="n">dis</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">((</span><span class="n">g1</span> <span class="o">-</span> <span class="n">center1</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="p">(</span><span class="n">g2</span> <span class="o">-</span> <span class="n">center2</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span><span class="p">)</span> <span class="c1"># distance from center</span>
+        <span class="n">sort_dis</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">dis</span><span class="o">.</span><span class="n">flatten</span><span class="p">())</span> <span class="c1"># sort distances</span>
+        <span class="n">radius</span> <span class="o">=</span> <span class="n">sort_dis</span><span class="p">[</span><span class="n">Nc</span><span class="p">]</span> <span class="c1"># get radius</span>
+        <span class="n">maskc</span> <span class="o">=</span> <span class="n">dis</span> <span class="o">&lt;=</span> <span class="n">radius</span> <span class="c1"># cloud mask</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">T</span><span class="p">[</span><span class="n">maskc</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dTdt</span><span class="p">[</span><span class="n">maskc</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+        <span class="k">return</span> <span class="bp">self</span></div>
+
+
+<div class="viewcode-block" id="ModifyData.convert_to_input">
+<a class="viewcode-back" href="../../../api.html#inversion_sst_gp.simulation.simulate_obs.ModifyData.convert_to_input">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">convert_to_input</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Convert the modified data to input format for further processing.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            tuple: Modified tracer data, spatial gradients, and mask.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># convert to input</span>
+        <span class="n">dTds1</span><span class="p">,</span> <span class="n">dTds2</span> <span class="o">=</span> <span class="n">finite_difference_2d</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">s</span><span class="p">[:,:,</span><span class="mi">0</span><span class="p">],</span><span class="bp">self</span><span class="o">.</span><span class="n">s</span><span class="p">[:,:,</span><span class="mi">1</span><span class="p">],</span><span class="bp">self</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+        <span class="n">maskc</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">dTds1</span><span class="p">)</span> <span class="o">|</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">dTds2</span><span class="p">)</span> <span class="o">|</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dTdt</span><span class="p">)</span> 
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">dTds1</span><span class="p">,</span> <span class="n">dTds2</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dTdt</span><span class="p">,</span> <span class="n">maskc</span></div>
+</div>
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../../index.html">SST currents</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../api.html">API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api.html#simulation">Simulation</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../../index.html">Documentation overview</a><ul>
+  <li><a href="../../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Rick de Kreij.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.0.4</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>
