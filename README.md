@@ -13,26 +13,30 @@ We present a novel method to estimate fine-scale ocean surface currents using sa
 
 ## Instructions
 
+You need to sign up for NASA Earthdata to download Himawar data using this package (https://urs.earthdata.nasa.gov/)
+
 To reproduce the results, please follow these steps:
 
-1. **Clone this repository** and navigate to the project root.
+1. **Clone this repository** and navigate to the project root (active users can fork the repository).
 
 2. **Install package:**  
     - Recommended: set up a virtual environment using [Poetry](https://python-poetry.org/docs/) and run  
       ```bash
       poetry install
-      ```  
+      ``` 
+    - Conda + PiP 
       *conda create -n sstinv python=3.12
       conda activate sstinv
       *
-    - Alternative: install the package with pip  
+        - Alternative: install the package with pip  
       ```bash
       pip install ./pkg
       ```
-      or
+      or install an editable version
       ```bash
       pip install -e ./pkg
-      ```      
+      ```  
+      Plus for Jupyter install ipykernel.     
 
 3. **Prepare the data:** Download the Himawari-9 data (see notebooks in examples).
 
