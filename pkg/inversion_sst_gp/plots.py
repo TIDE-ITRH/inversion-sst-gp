@@ -45,7 +45,8 @@ def plot_gradients(ds, tg_name='dTdt', sg_names=['dTdx','dTdy']):
     return fig, ax
 
 
-def plot_scene(ds, T_name='T', u_name='mu_u', v_name='mu_v', ax=None, qv_scale=20, qk_size=1.0, qk_x=0.78, qk_y=1.03, cbar=True, vlims=None):
+def plot_scene(ds, T_name='T', u_name='mu_u', v_name='mu_v', ax=None,\
+            qv_scale=20, qk_size=1.0, qk_x=0.78, qk_y=1.03, cbar=True, vlims=None, thin=1):
     
     if ax is None:
         return_fig = True
@@ -71,7 +72,7 @@ def plot_scene(ds, T_name='T', u_name='mu_u', v_name='mu_v', ax=None, qv_scale=2
     ax.set_ylabel('')
         
     if u_name is not None:
-        Q = ax.quiver(ds['LON'], ds['LAT'], ds[u_name], ds[v_name], scale=qv_scale)
+        Q = ax.quiver(ds['LON'][::thin,::thin], ds['LAT'][::thin,::thin], ds[u_name][::thin,::thin], ds[v_name][::thin,::thin], scale=qv_scale)
         qk = ax.quiverkey(
                     Q,
                     X=qk_x, Y=qk_y,      
@@ -85,12 +86,13 @@ def plot_scene(ds, T_name='T', u_name='mu_u', v_name='mu_v', ax=None, qv_scale=2
         return ax
 
 
-def plot_prediction(ds, T_name='T', u_name='mu_u', v_name='mu_v', std_u_name='std_u', std_v_name='std_v', qv_scale=20, qk_size=1.0, qk_x=0.78, qk_y=1.03):
+def plot_prediction(ds, T_name='T', u_name='mu_u', v_name='mu_v', std_u_name='std_u', std_v_name='std_v',\
+                    qv_scale=20, qk_size=1.0, qk_x=0.78, qk_y=1.03, thin=1):
     
     fig, ax = plt.subplots(1, 3, figsize=(15, 5), gridspec_kw={'wspace':0.25})
 
     ds[T_name].plot(ax=ax[0], cmap='cmo.thermal', cbar_kwargs={'label':'SST [K]', 'shrink':0.7, 'pad':0.03})
-    Q = ax[0].quiver(ds['LON'], ds['LAT'], ds[u_name], ds[v_name], scale=qv_scale)
+    Q = ax[0].quiver(ds['LON'][::thin,::thin], ds['LAT'][::thin,::thin], ds[u_name][::thin,::thin], ds[v_name][::thin,::thin], scale=qv_scale)
 
     vm = np.max([np.abs(ds[std_u_name]).max(), np.abs(ds[std_v_name]).max()])
     ds[std_u_name].plot(ax=ax[1], cmap='Greys', vmin=0, vmax=vm, cbar_kwargs={'label':'Uncertainty in $u$ [m s$^{-1}$]', 'shrink':0.7, 'pad':0.03})
