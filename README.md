@@ -24,11 +24,11 @@ To reproduce the results, please follow these steps:
       ```bash
       poetry install
       ``` 
-    - Conda + PiP 
-      *conda create -n sstinv python=3.12
+    - Alternative: Conda + PiP 
+      ```bash
+      conda create -n sstinv python=3.12
       conda activate sstinv
-      *
-        - Alternative: install the package with pip  
+      ```
       ```bash
       pip install ./pkg
       ```
