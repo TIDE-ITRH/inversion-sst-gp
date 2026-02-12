@@ -30,11 +30,11 @@ To reproduce the results, please follow these steps:
       conda activate sstinv
       ```
       ```bash
-      pip install ./pkg
+      pip install .
       ```
       or install an editable version
       ```bash
-      pip install -e ./pkg
+      pip install -e .
       ```  
       Plus for Jupyter install ipykernel.     
 
