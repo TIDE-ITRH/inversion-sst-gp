@@ -7,7 +7,7 @@ Physics-informed Gaussian process inversion of sea surface temperature to predic
 
 We present a novel method to estimate fine-scale ocean surface currents using satellite sea surface temperature (SST) data. Our approach uses Gaussian process (GP) regression guided by the tracer transport equation, providing not only current predictions but also associated uncertainty. The model effectively handles noisy and incomplete SST data (e.g., due to cloud cover).
 
-This repository contains all code and data to reproduce the experiments and results presented in the paper, including the observing system simulation experiment (OSSE) and real-world satellite SST applications.
+**This repository is a fork of the main package.** This fork is intended for use and contains functions to fit individual scenes and time series using `xarray` objects.
 
 ---
 
@@ -29,10 +29,14 @@ To reproduce the results, please follow these steps:
       ```bash
       pip install ./pkg
       ```
+      or
+      ```bash
+      pip install -e ./pkg
+      ```      
 
-3. **Prepare the data:** Download the preprocessed NetCDF files of the SUNTANS, Himawari-9, and altimetry derived currents as stated in the [1_preproc_data/README.md](1_preproc_data/README.md).
+3. **Prepare the data:** Download the Himawari-9 data (see notebooks in examples).
 
-4. **Run the project sequentially:** After placing the data, cycle through the folders `1_`, `2_`, etc., running the code in each folder in order. Output data, such as figures and tables, will be saved in subfolders such as `proc_data/`, `intermediate/`, and `outputs/`. These are reused or referenced in downstream scripts and notebooks. **Note:** the expected output files and figures are included in the subfolders ending on `_chached`.
+4. **Run the project sequentially:** Run the GP regression fit and predict functions (also in example notebooks).
 
 
 ## Abstract

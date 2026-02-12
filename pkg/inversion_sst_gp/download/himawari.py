@@ -217,26 +217,24 @@ def crop_sst_scene_nasa(savedir, time_step, ll_box, version=9, level='L3C', file
         if os.path.exists(full_name):
             print(f"Cropping file for time {time_str}")
             
-            try:
-                ds = xr.open_dataset(full_name, decode_times=False)
-                if ds['lat'][0] > ds['lat'][-1]:
-                    ds_cropped = ds.sel(lon=slice(ll_box[0][0], ll_box[0][1]), lat=slice(ll_box[1][1], ll_box[1][0]))
-                else:
-                    ds_cropped = ds.sel(lon=slice(ll_box[0][0], ll_box[0][1]), lat=slice(ll_box[1][0], ll_box[1][1]))
+            # try:
+            ds = xr.open_dataset(full_name, decode_times=False)
+            if ds['lat'][0] > ds['lat'][-1]:
+                ds_cropped = ds.sel(lon=slice(ll_box[0][0], ll_box[0][1]), lat=slice(ll_box[1][1], ll_box[1][0]))
+            else:
+                ds_cropped = ds.sel(lon=slice(ll_box[0][0], ll_box[0][1]), lat=slice(ll_box[1][0], ll_box[1][1]))
+            
+            ds_cropped.to_netcdf(full_crop_name)
+            ds.close()
+            
+            # Remove the original file to save space
+            if overwrite:
+                os.remove(full_name)
+                if file_app == '':
+                    os.rename(full_crop_name, full_name)
                 
-
-                
-                ds_cropped.to_netcdf(full_crop_name)
-                ds.close()
-                
-                # Remove the original file to save space
-                if overwrite:
-                    os.remove(full_name)
-                    if file_app == '':
-                        os.rename(full_crop_name, full_name)
-                
-            except Exception as e:
-                print(f"Error processing file {full_name}: {e}")
+            # except Exception as e:
+            #     print(f"Error processing file {full_name}: {e}")
         else:
             print(f"File does not exist: {full_name}")
             

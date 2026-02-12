@@ -555,16 +555,36 @@ class GPRegressionJoint(object):
             self.format_output(muxstar, Kxstar)
         )
 
-        output = [muustar, muvstar, muSstar, stdustar, stdvstar, stdSstar, Kxstar_vel]
-        if return_prior:  # return prior and posterior
+        # Prepare output dictionary
+        output = {
+            "posterior": {
+                "mu_u": muustar,
+                "mu_v": muvstar,
+                "mu_S": muSstar,
+                "std_u": stdustar,
+                "std_v": stdvstar,
+                "std_S": stdSstar,
+                "Kx_vel": Kxstar_vel,
+            }
+        }
+
+        if return_prior:
             muu, muv, muS, stdu, stdv, stdS, Kx_vel = self.format_output(mux, Kx)
-            output += [muu, muv, muS, stdu, stdv, stdS, Kx_vel]
-        if return_Kxstar:
-            output += [Kxstar]
-        return tuple(output)
+            output["prior"] = {
+                "mu_u": muu,
+                "mu_v": muv,
+                "mu_S": muS,
+                "std_u": stdu,
+                "std_v": stdv,
+                "std_S": stdS,
+                "Kx_vel": Kx_vel,
+            }
+            
+        return output
 
 
-def calculate_prediction_gpregression(dTds1, dTds2, dTdt, params, X, Y, tstep, maskp = None, degreeu=2, degreev=2, degreeS=2, return_Kxstar=False):
+def calculate_prediction_gpregression(dTds1, dTds2, dTdt, params, X, Y, tstep, maskp=None, degreeu=2, degreev=2, degreeS=2,\
+            return_prior=False, return_Kxstar=False):
 
     """
     Calculate predictions using Gaussian Process regression.
@@ -607,44 +627,13 @@ def calculate_prediction_gpregression(dTds1, dTds2, dTdt, params, X, Y, tstep, m
         degreeS=degreeS,
     )
     
-    if not return_Kxstar:
-        muustar, muvstar, muSstar, stdustar, stdvstar, stdSstar, Kxstar_vel = gprm.predict(
-            params, return_prior=False, return_Kxstar=False
-        )
-        return muustar, muvstar, muSstar, stdustar, stdvstar, stdSstar, Kxstar_vel
-    else:
-        muustar, muvstar, muSstar, stdustar, stdvstar, stdSstar, Kxstar_vel, Kxstar = gprm.predict(
-            params, return_prior=False, return_Kxstar=True
-        )
-        return muustar, muvstar, muSstar, stdustar, stdvstar, stdSstar, Kxstar_vel, Kxstar
+    results = gprm.predict(params, return_prior=return_prior, return_Kxstar=return_Kxstar)
     
+    return results    
+
     
-def predict_scene(ds, params, mask=None, full_cov=False):
-    """Predict currents using GP regression for an xarray dataset.
 
-    Args:
-        ds (xarray.Dataset): Input dataset containing SST gradients.
-        params (dict): Dictionary of GP regression parameters.
-    Returns:
-        xarray.Dataset: Dataset containing predicted currents and uncertainties.
-    """
     
-    muustar, muvstar, muSstar, stdustar, stdvstar, stdSstar, Kxstar_vel = (calculate_prediction_gpregression(
-            ds['dTdx'].values, ds['dTdy'].values, ds['dTdt'].values, params, ds['X'].values, ds['Y'].values, ds['time_step'].values, maskp=mask))
-
-    ds['mu_u'] = (('lat', 'lon'), muustar)
-    ds['mu_v'] = (('lat', 'lon'), muvstar)
-    ds['mu_S'] = (('lat', 'lon'), muSstar)
-    ds['std_u'] = (('lat', 'lon'), stdustar)
-    ds['std_v'] = (('lat', 'lon'), stdvstar)
-    ds['std_S'] = (('lat', 'lon'), stdSstar)
-    ds['K_uv'] = (('lat', 'lon'), Kxstar_vel[:, :, 0, 1])
-
-    if full_cov:
-        return ds, Kxstar_vel
-    else:
-        return ds
-
 
 # Metric functions
 def run_gprm_optim(time_str, dTds1, dTds2, dTdt, X, Y, tstep, prop, mask=None, callback="on"):
@@ -662,7 +651,21 @@ def run_gprm_optim_xr(ds, rlml_params, mask=None, callback="on"):
     return results
 
 
-def fit_series(ds, init_params, refit_interval, coverage=0.8, save_steps=False, save_name=None, mask=None, callback="on"):
+def fit_scene(ds, init_params, coverage=0.8, mask=None, callback="on"):
+            
+    # Proceed if all coverage is good
+    if check_coverage(ds, coverage=coverage):
+        results = run_gprm_optim_xr(ds, init_params, mask=mask, callback=callback) 
+        df = pd.DataFrame(data=results['est_params'], index=pd.Series(ds['time'].values, name='time'))
+        df.index = pd.to_datetime(df.index)
+        ds_results = xr.Dataset.from_dataframe(df)
+    else:  
+        print("Not enough data to fit")
+            
+    return ds_results
+
+
+def fit_series(ds, init_params, refit_interval, coverage=0.8, save_steps=False, save_name=None, mask=None, callback="off"):
     
     if save_steps:
         assert save_name is not None
@@ -706,6 +709,74 @@ def fit_series(ds, init_params, refit_interval, coverage=0.8, save_steps=False, 
     return results_step
 
 
+def predict_scene_func(ds, params, mask=None, return_cov=False, return_prior=False):
+    """Predict currents using GP regression for an xarray dataset.
+
+    Args:
+        ds (xarray.Dataset): Input dataset containing SST gradients.
+        params (dict): Dictionary of GP regression parameters.
+    Returns:
+        xarray.Dataset: Dataset containing predicted currents and uncertainties.
+    """
+    
+    results = (calculate_prediction_gpregression(
+                ds['dTdx'].values, ds['dTdy'].values, ds['dTdt'].values, params,\
+                ds['X'].values, ds['Y'].values, ds['time_step'].values, maskp=mask,
+                return_Kxstar=return_cov, return_prior=return_prior))
+    
+    posterior = results['posterior']
+    ds['mu_u'] = (('lat', 'lon'), posterior["mu_u"])
+    ds['mu_v'] = (('lat', 'lon'), posterior["mu_v"])
+    ds['mu_S'] = (('lat', 'lon'), posterior["mu_S"])
+    ds['std_u'] = (('lat', 'lon'), posterior["std_u"])
+    ds['std_v'] = (('lat', 'lon'), posterior["std_v"])
+    ds['std_S'] = (('lat', 'lon'), posterior["std_S"])
+    ds['K_uv'] = (('lat', 'lon'), posterior["Kx_vel"][:, :, 0, 1])
+
+    # Access prior predictions (if requested)
+    if "prior" in results:
+        prior = results["prior"]
+        ds['mu_u_prior'] = (('lat', 'lon'), prior["mu_u"])
+        ds['mu_v_prior'] = (('lat', 'lon'), prior["mu_v"])
+        ds['mu_S_prior'] = (('lat', 'lon'), prior["mu_S"])
+        ds['std_u_prior'] = (('lat', 'lon'), prior["std_u"])
+        ds['std_v_prior'] = (('lat', 'lon'), prior["std_v"])
+        ds['std_S_prior'] = (('lat', 'lon'), prior["std_S"])
+        ds['K_uv_prior'] = (('lat', 'lon'), prior["Kx_vel"][:, :, 0, 1])
+
+    # Access Kxstar (if requested)
+    if return_cov:
+        return ds, posterior["Kx_vel"]
+    else:
+        return ds
+    
+    
+
+def predict_scene(ds, params, mask=None, coverage=0.8, return_cov=False, return_prior=False):
+    """Predict currents using GP regression for an xarray dataset time series.
+
+    Args:
+        ds (xarray.Dataset): Input dataset containing SST gradients.
+        params (dict): Dictionary of GP regression parameters.
+    Returns:
+        xarray.Dataset: Dataset containing predicted currents and uncertainties.
+    """
+
+    # Proceed if all coverage is good
+    if check_coverage(ds, coverage=coverage):
+                        
+        # Check if params is dict or list of dicts
+        if isinstance(params, list):
+            raise Exception("List not supported for predict scene")
+ 
+        elif isinstance(params, xr.Dataset):
+            params = {var: params[var].item() for var in params.data_vars}
+    
+    if return_cov:  
+        return predict_scene_func(ds, params, mask=mask, return_cov=return_cov, return_prior=return_prior)
+    else:
+        return predict_scene_func(ds, params, mask=mask, return_cov=return_cov, return_prior=return_prior)
+
 
 def predict_series(ds, params, mask=None, coverage=0.8):
     """Predict currents using GP regression for an xarray dataset time series.
@@ -728,18 +799,18 @@ def predict_series(ds, params, mask=None, coverage=0.8):
             # Check if params is dict or list of dicts
             if isinstance(params, list):
                 if not np.isnan(params[ii]['est_params']['sigma_u']):
-                    ds_pred = predict_scene(ds_t, params[ii]['est_params'], mask=mask)
+                    ds_pred = predict_scene_func(ds_t, params[ii]['est_params'], mask=mask)
                     ds_list.append(ds_pred)        
             
             elif isinstance(params, dict):
-                ds_pred = predict_scene(ds_t, params, mask=mask)
+                ds_pred = predict_scene_func(ds_t, params, mask=mask)
                 ds_list.append(ds_pred)
                     
             elif isinstance(params, xr.Dataset):
                 if not np.isnan(params['sigma_u'].sel(time=t).values):
                     ds_p = params.sel(time=t)
                     ds_p_dict = {var: ds_p[var].item() for var in ds_p.data_vars}
-                    ds_pred = predict_scene(ds_t, ds_p_dict, mask=mask)
+                    ds_pred = predict_scene_func(ds_t, ds_p_dict, mask=mask)
                     ds_list.append(ds_pred)
             else:
                 raise ValueError("params must be a dict or list of dicts")
