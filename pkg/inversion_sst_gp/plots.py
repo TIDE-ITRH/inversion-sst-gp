@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import cmocean
-
+import cartopy.crs as ccrs  
 from matplotlib.colors import Normalize
 from matplotlib.animation import FuncAnimation
 
@@ -28,7 +28,8 @@ mpl.rcParams.update({
 
 def plot_gradients(ds, tg_name='dTdt', sg_names=['dTdx','dTdy']):
     
-    fig, ax = plt.subplots(1, 2, figsize=(10, 5), gridspec_kw={'wspace':0.25})
+    fig, ax = plt.subplots(1, 2, figsize=(10, 5), gridspec_kw={'wspace':0.25},
+                           subplot_kw={'projection': ccrs.PlateCarree()})
 
     ds[tg_name].plot(ax=ax[0], cmap='viridis', vmin=0, vmax = 4e-5, cbar_kwargs={'pad':0.03, 'shrink':0.5, 'label':'$\\partial T/ \\partial t$ [K s$^{-1}$]'})
 
@@ -87,7 +88,7 @@ def plot_scene(ds, T_name='T', u_name='mu_u', v_name='mu_v', ax=None,\
 
 
 def plot_prediction(ds, T_name='T', u_name='mu_u', v_name='mu_v', std_u_name='std_u', std_v_name='std_v',\
-                    qv_scale=20, qk_size=1.0, qk_x=0.78, qk_y=1.03, thin=1):
+                    qv_scale=12, qk_size=1.0, qk_x=0.78, qk_y=1.03, thin=1):
     
     fig, ax = plt.subplots(1, 3, figsize=(15, 5), gridspec_kw={'wspace':0.25})
 
@@ -165,10 +166,10 @@ def plot_timeseries(ds, lon_pt, lat_pt, u_name='mu_u', v_name='mu_v', std_u_name
     return fig, ax
 
 
+def plot_pred_ellipses(ds, Kpp, n_std=1, scale=0.6, qv_scale=12, qk_size=1.0, qk_x=0.78, qk_y=1.03, an=True, **kwargs):
 
-def plot_pred_ellipses(ds, Kpp, n_std=1, scale=1, qv_scale=20, qk_size=1.0, qk_x=0.78, qk_y=1.03, an=True, **kwargs):
-
-    fig, ax = plt.subplots(1, 2, figsize=(8, 4), gridspec_kw={'wspace':0.1})
+    fig, ax = plt.subplots(1, 2, figsize=(8, 4), gridspec_kw={'wspace':0.1},
+                           subplot_kw={'projection': ccrs.PlateCarree()})
     
     ds['T'].plot(ax=ax[0], cmap='cmo.thermal', add_colorbar=False)
     Q = ax[0].quiver(ds['LON'], ds['LAT'], ds['mu_u'], ds['mu_v'], scale=qv_scale)

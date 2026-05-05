@@ -659,10 +659,11 @@ def fit_scene(ds, init_params, coverage=0.8, mask=None, callback="on"):
         df = pd.DataFrame(data=results['est_params'], index=pd.Series(ds['time'].values, name='time'))
         df.index = pd.to_datetime(df.index)
         ds_results = xr.Dataset.from_dataframe(df)
+        return ds_results
     else:  
         print("Not enough data to fit")
-            
-    return ds_results
+        return None
+    
 
 
 def fit_series(ds, init_params, refit_interval, coverage=0.8, save_steps=False, save_name=None, mask=None, callback="off"):
